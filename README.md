@@ -2,6 +2,8 @@
 
 Scrapes NLHE cash game hand analysis data from ClubWPT Gold and converts it to PokerStars hand history format for import into PokerTracker 4 or Holdem Manager 3.
 
+![PokerTracker 4 results from imported ClubWPT hands](clubwptpokertracker.jpeg)
+
 ## Setup
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
