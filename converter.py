@@ -218,6 +218,12 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
     bb_player = _find_player_by_position(players, 'BB')
     straddle_player = _find_straddle_player(players) if has_straddle else None
 
+    # Heads-up (2-max): BTN is the SB but API marks position as "BTN".
+    # In heads-up, ante == SB so we treat BTN as SB and skip antes entirely.
+    is_heads_up = max_players == 2 and sb_player is None and btn_player is not None
+    if is_heads_up:
+        sb_player = btn_player
+
     # Header — truncate 19-digit ID to 12 digits for PT4 compatibility
     hand_id = str(int(hand['id']) % 1_000_000_000_000)
     lines.append(
@@ -233,8 +239,8 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
         seat = p['seat_no'] + 1
         lines.append(f"Seat {seat}: {p['name']} ({fmt_amount(p['starting_stack'])} in chips)")
 
-    # Antes — individual per player
-    if ante > 0:
+    # Antes — individual per player (skipped in heads-up where ante == SB)
+    if ante > 0 and not is_heads_up:
         for p in sorted(players, key=lambda x: x['seat_no']):
             lines.append(f"{p['name']}: posts the ante {fmt_amount(ante)}")
 
@@ -290,7 +296,7 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
     # FIX: Remaining stacks use STARTING stacks (not ending)
     remaining_stack = {}
     for p in players:
-        remaining_stack[p['seat_no']] = p['starting_stack'] - ante
+        remaining_stack[p['seat_no']] = p['starting_stack'] - (0 if is_heads_up else ante)
     if sb_player:
         remaining_stack[sb_player['seat_no']] -= sb
     if bb_player:
@@ -302,7 +308,7 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
                 remaining_stack[ps] -= post_amount
 
     # FIX: Track total_pot from forced bets + actions (not from win_bet)
-    total_pot = ante * len(players)
+    total_pot = 0 if is_heads_up else ante * len(players)
     if sb_player:
         total_pot += sb
     if bb_player:
@@ -312,6 +318,8 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
             pp = seat_map[ps]
             if pp.get('position') not in ('SB', 'BB', 'UTG' if has_straddle else ''):
                 total_pot += post_amount
+
+    last_street_invested = None  # track final street_invested for uncalled calc
 
     for street in hand.get('hand_history', []):
         street_type = street['type']
@@ -459,9 +467,19 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
                     line = f"{name}: calls {fmt_amount(additional)} and is all-in"
                 lines.append(line)
 
-    # FIX: Compute uncalled bet and effective pot from action tracking
-    uncalled_amount, uncalled_seat = _calc_uncalled(
-        hand, has_straddle=has_straddle, straddle_amount=straddle_amount, bb=bb)
+        # Save this street's invested values for uncalled bet calculation
+        last_street_invested = dict(street_invested)
+
+    # Compute uncalled bet from actual street investments (max vs second-max).
+    # This correctly handles all-in-for-less calls because street_invested
+    # values are already capped at remaining stack during action processing.
+    uncalled_amount = 0
+    uncalled_seat = None
+    if last_street_invested:
+        invested_vals = sorted(last_street_invested.values(), reverse=True)
+        if len(invested_vals) >= 2 and invested_vals[0] > invested_vals[1]:
+            uncalled_amount = invested_vals[0] - invested_vals[1]
+            uncalled_seat = max(last_street_invested, key=lambda s: last_street_invested[s])
     if uncalled_amount > 0:
         if uncalled_seat is not None and uncalled_seat in seat_map:
             lines.append(f"Uncalled bet ({fmt_amount(uncalled_amount)}) returned to {seat_map[uncalled_seat]['name']}")
@@ -540,98 +558,6 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
             lines.append(f"Seat {seat}: {name}{pos_str} mucked")
 
     return '\n'.join(lines)
-
-
-def _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=0):
-    """Calculate the uncalled bet amount and the seat that gets it returned.
-
-    Returns (uncalled_amount, seat_no_or_None).
-
-    Finds the last truly aggressive action (bet/raise/allin-over-current-bet),
-    then checks what happened after it:
-    - 'call' action → bet was fully matched → uncalled = 0
-    - 'allin' for less → partial match → uncalled = aggro - allin_amount
-    - nothing matched → uncalled = aggro - previous bet level
-
-    This avoids tracking per-player street investments, which are unreliable
-    on preflop because forced bets (SB/BB/straddle) aren't in the API actions.
-    """
-    history = hand.get('hand_history', [])
-    if not history:
-        return 0, None
-
-    last_street = None
-    for street in reversed(history):
-        if street.get('actions'):
-            last_street = street
-            break
-    if not last_street:
-        return 0, None
-
-    actions = last_street['actions']
-    if not actions:
-        return 0, None
-
-    street_type = last_street['type']
-
-    if street_type == 'preflop':
-        current_bet = straddle_amount if has_straddle else bb
-    else:
-        current_bet = 0
-
-    # Find the last truly aggressive action, tracking prev bet level
-    last_aggro_seat = None
-    last_aggro_amount = 0
-    last_aggro_idx = -1
-    prev_bet = current_bet
-
-    for i, action in enumerate(actions):
-        act = action['action']
-        amount = action.get('amount', 0)
-
-        if act in ('bet', 'raise'):
-            prev_bet = current_bet
-            current_bet = amount
-            last_aggro_seat = action['seatNo']
-            last_aggro_amount = amount
-            last_aggro_idx = i
-        elif act == 'allin':
-            if amount > current_bet:
-                prev_bet = current_bet
-                current_bet = amount
-                last_aggro_seat = action['seatNo']
-                last_aggro_amount = amount
-                last_aggro_idx = i
-
-    if last_aggro_seat is None:
-        return 0, None
-
-    # Check what happens after the last aggressive action
-    has_full_call = False
-    max_allin_for_less = 0
-
-    for action in actions[last_aggro_idx + 1:]:
-        act = action['action']
-        if act == 'call':
-            # A call always means the player matched the bet
-            has_full_call = True
-            break
-        elif act == 'allin':
-            # Allin after last aggro must be for-less (otherwise it would
-            # have been the last aggro). Track as partial match.
-            max_allin_for_less = max(max_allin_for_less, action.get('amount', 0))
-
-    if has_full_call:
-        return 0, None
-
-    if max_allin_for_less > 0:
-        uncalled = max(last_aggro_amount - max_allin_for_less, 0)
-    else:
-        uncalled = max(last_aggro_amount - prev_bet, 0)
-
-    if uncalled > 0:
-        return uncalled, last_aggro_seat
-    return 0, None
 
 
 def _winner_share(winner, all_winners, effective_pot):

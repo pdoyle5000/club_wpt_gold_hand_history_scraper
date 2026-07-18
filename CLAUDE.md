@@ -23,7 +23,7 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 1. **Straddle handling**: PT4 doesn't support `posts the straddle`. Straddle is emitted as a synthetic preflop raise from UTG.
 2. **Preflop "check" in straddle games**: The API sometimes reports a "check" for players who haven't matched the straddle — this is actually a call and must be converted accordingly.
 3. **All-in-for-less uncalled bets**: When a player goes all-in for less than the current bet, the difference must be returned as an uncalled bet to the last aggressor.
-4. **Forced bet tracking**: The `_calc_uncalled` function uses call-detection rather than street investment tracking, because forced preflop bets (SB/BB/straddle) are not represented in the API action list.
+4. **Uncalled bet calculation**: Uses inline max/second-max computation on per-player `street_invested` values, which are correctly capped at available stack during action processing. This handles all-in-for-less via call correctly.
 5. **Hand IDs**: The API uses 19-digit IDs; these are truncated to 12 digits (`id % 1_000_000_000_000`) for PT4 compatibility.
 
 ## Running Tests

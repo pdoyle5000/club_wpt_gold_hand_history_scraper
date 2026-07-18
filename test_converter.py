@@ -4,7 +4,7 @@ import re
 import pytest
 from converter import (
     parse_cards, format_cards, evaluate_hand, fmt_amount,
-    convert_hand, _calc_uncalled,
+    convert_hand,
 )
 
 
@@ -730,165 +730,6 @@ class TestBugBAllinForLess:
         assert has_line_containing(text, "Uncalled bet ($42.36) returned to Ptaters")
 
 
-# ---------------------------------------------------------------------------
-# Direct tests for _calc_uncalled
-# ---------------------------------------------------------------------------
-
-class TestCalcUncalled:
-    def test_no_aggro(self):
-        """All checks — no uncalled bet."""
-        hand = {
-            "hand_history": [
-                {"type": "river", "actions": [
-                    {"action": "check", "seatNo": 0, "amount": 0},
-                    {"action": "check", "seatNo": 1, "amount": 0},
-                ]}
-            ]
-        }
-        result = _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=200)
-        assert result == (0, None)
-
-    def test_bet_called(self):
-        """Bet then call — no uncalled."""
-        hand = {
-            "hand_history": [
-                {"type": "flop", "actions": [
-                    {"action": "bet", "seatNo": 0, "amount": 500},
-                    {"action": "call", "seatNo": 1, "amount": 500},
-                ]}
-            ]
-        }
-        result = _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=200)
-        assert result == (0, None)
-
-    def test_bet_fold(self):
-        """Bet then fold — uncalled = bet amount."""
-        hand = {
-            "hand_history": [
-                {"type": "flop", "actions": [
-                    {"action": "bet", "seatNo": 0, "amount": 500},
-                    {"action": "fold", "seatNo": 1},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=200)
-        assert amount == 500
-        assert seat == 0
-
-    def test_raise_fold(self):
-        """Bet, raise, fold — uncalled = raise - bet."""
-        hand = {
-            "hand_history": [
-                {"type": "flop", "actions": [
-                    {"action": "bet", "seatNo": 0, "amount": 500},
-                    {"action": "raise", "seatNo": 1, "amount": 1500},
-                    {"action": "fold", "seatNo": 0},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=200)
-        assert amount == 1000  # 1500 - 500
-        assert seat == 1
-
-    def test_allin_for_less_uncalled(self):
-        """SB raises to 51000, HJ allins 34600 (for less). Uncalled = 16400."""
-        hand = {
-            "hand_history": [
-                {"type": "flop", "actions": [
-                    {"action": "bet", "seatNo": 1, "amount": 17000},
-                    {"action": "raise", "seatNo": 4, "amount": 34000},
-                    {"action": "fold", "seatNo": 0},
-                    {"action": "raise", "seatNo": 1, "amount": 51000},
-                    {"action": "allin", "seatNo": 4, "amount": 34600},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=1000)
-        assert amount == 16400
-        assert seat == 1  # SB gets the uncalled portion
-
-    def test_allin_over_then_allin_for_less(self):
-        """BB allins 216000 (over), BTN allins 129740 (for less). Uncalled = 86260."""
-        hand = {
-            "hand_history": [
-                {"type": "flop", "actions": [
-                    {"action": "check", "seatNo": 5, "amount": 0},
-                    {"action": "bet", "seatNo": 1, "amount": 9400},
-                    {"action": "raise", "seatNo": 5, "amount": 30000},
-                    {"action": "raise", "seatNo": 1, "amount": 77500},
-                    {"action": "allin", "seatNo": 5, "amount": 216000},
-                    {"action": "allin", "seatNo": 1, "amount": 129740},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=1000)
-        assert amount == 86260
-        assert seat == 5  # BB gets the uncalled portion
-
-    def test_preflop_allin_for_less(self):
-        """MP raises to 14000, BTN allins 9764 (for less). Uncalled = 4236."""
-        hand = {
-            "hand_history": [
-                {"type": "preflop", "actions": [
-                    {"action": "fold", "seatNo": 4},
-                    {"action": "raise", "seatNo": 5, "amount": 1200},
-                    {"action": "fold", "seatNo": 6},
-                    {"action": "fold", "seatNo": 7},
-                    {"action": "raise", "seatNo": 0, "amount": 3600},
-                    {"action": "fold", "seatNo": 1},
-                    {"action": "fold", "seatNo": 2},
-                    {"action": "fold", "seatNo": 3},
-                    {"action": "raise", "seatNo": 5, "amount": 14000},
-                    {"action": "allin", "seatNo": 0, "amount": 9764},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=True, straddle_amount=400, bb=200)
-        assert amount == 4236
-        assert seat == 5  # MP gets the uncalled portion
-
-    def test_call_after_allin_with_forced_bets(self):
-        """UTG allins, BB calls — call means fully matched despite forced bets
-        not being in street_inv. Uncalled should be 0."""
-        hand = {
-            "hand_history": [
-                {"type": "preflop", "actions": [
-                    {"action": "allin", "seatNo": 5, "amount": 13860},
-                    {"action": "fold", "seatNo": 6},
-                    {"action": "fold", "seatNo": 7},
-                    {"action": "fold", "seatNo": 0},
-                    {"action": "fold", "seatNo": 1},
-                    {"action": "call", "seatNo": 2, "amount": 13660},
-                    {"action": "allin", "seatNo": 3, "amount": 17006},
-                    {"action": "call", "seatNo": 2, "amount": 3146},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=True, straddle_amount=400, bb=200)
-        assert amount == 0
-        assert seat is None
-
-    def test_call_after_allin_straddle_match(self):
-        """HJ allins, UTG (straddle player) calls — straddle + call = full match.
-        Uncalled should be 0."""
-        hand = {
-            "hand_history": [
-                {"type": "preflop", "actions": [
-                    {"action": "fold", "seatNo": 5},
-                    {"action": "raise", "seatNo": 6, "amount": 1000},
-                    {"action": "allin", "seatNo": 7, "amount": 5300},
-                    {"action": "fold", "seatNo": 0},
-                    {"action": "fold", "seatNo": 1},
-                    {"action": "fold", "seatNo": 2},
-                    {"action": "fold", "seatNo": 3},
-                    {"action": "call", "seatNo": 4, "amount": 4900},
-                    {"action": "fold", "seatNo": 6},
-                ]}
-            ]
-        }
-        amount, seat = _calc_uncalled(hand, has_straddle=True, straddle_amount=400, bb=200)
-        assert amount == 0
-        assert seat is None
 
 
 # ---------------------------------------------------------------------------
@@ -1048,3 +889,226 @@ class TestErrorSet2ForcedBets:
         """BB call fully matches UTG allin — no uncalled bet."""
         text = convert_hand(HAND_939622334464)
         assert extract_uncalled(text) is None
+
+
+# ---------------------------------------------------------------------------
+# Error Set 3: Heads-up SB + All-in-for-less call
+# ---------------------------------------------------------------------------
+
+# Heads-up hand: 2-max, no straddle, SB=20, BB=50, ante=20.
+# BTN is the SB in heads-up. PT4 expects no antes, just SB+BB.
+# PT4 error was (1.20 vs pot: 1.00).
+HAND_43959074816 = {
+    "id": "1215183043959074816",
+    "hole_cards": "Td7s",
+    "community_cards": "Ah8c6h6sTh",
+    "hand_score": 10000,
+    "timestamp": 1764525102000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1215177773043466240",
+        "session_id": "",
+        "table_name": "HL9237",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": False,
+        "game_type_code": "nlhe",
+        "max_players": 2,
+        "stack_depth": "deep",
+        "ante_size": "small",
+    },
+    "player_position": "BB",
+    "players": [
+        {"uid": "364987", "name": "Bvamerica97", "stack": 2300, "seat_no": 3, "position": "BTN", "win_bet": -70, "net": -70, "hand_cards": "2sJs", "is_showdown": True, "is_showcard": True},
+        {"uid": "235160", "name": "Ptaters", "stack": 10929, "seat_no": 4, "position": "BB", "win_bet": 70, "net": 70, "hand_cards": "Td7s", "is_showdown": True, "is_showcard": True},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 110,
+            "actions": [
+                {"role": "BTN", "type": "action", "action": "call", "seatNo": 3, "totalBet": 30, "amount": 30},
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 4, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {"type": "flop", "pot_size": 140, "actions": [
+            {"role": "BB", "type": "action", "action": "check", "seatNo": 4, "totalBet": 0, "amount": 0},
+            {"role": "BTN", "type": "action", "action": "check", "seatNo": 3, "totalBet": 0, "amount": 0},
+        ]},
+        {"type": "turn", "pot_size": 140, "actions": [
+            {"role": "BB", "type": "action", "action": "check", "seatNo": 4, "totalBet": 0, "amount": 0},
+            {"role": "BTN", "type": "action", "action": "check", "seatNo": 3, "totalBet": 0, "amount": 0},
+        ]},
+        {"type": "river", "pot_size": 140, "actions": [
+            {"role": "BB", "type": "action", "action": "check", "seatNo": 4, "totalBet": 0, "amount": 0},
+            {"role": "BTN", "type": "action", "action": "check", "seatNo": 3, "totalBet": 0, "amount": 0},
+        ]},
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": 1.4,
+    "post_seats": [],
+    "analysis": {"bestCount": 4, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+# Heads-up hand with turn bet/fold: uncalled bet on turn.
+# PT4 error was (15.00 vs pot: 14.80).
+HAND_735670153216 = {
+    "id": "1215200735670153216",
+    "hole_cards": "QcKs",
+    "community_cards": "Jh6sJcAh",
+    "hand_score": 10000,
+    "timestamp": 1764529320000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1215166070925115392",
+        "session_id": "",
+        "table_name": "HL9205",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": False,
+        "game_type_code": "nlhe",
+        "max_players": 2,
+        "stack_depth": "deep",
+        "ante_size": "small",
+    },
+    "player_position": "BB",
+    "players": [
+        {"uid": "378882", "name": "Fred52", "stack": 9606, "seat_no": 7, "position": "BTN", "win_bet": 760, "net": 760, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "235160", "name": "Ptaters", "stack": 13283, "seat_no": 1, "position": "BB", "win_bet": -760, "net": -760, "hand_cards": "QcKs", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 110,
+            "actions": [
+                {"role": "BTN", "type": "action", "action": "call", "seatNo": 7, "totalBet": 30, "amount": 30},
+                {"role": "BB", "type": "action", "action": "raise", "seatNo": 1, "totalBet": 200, "amount": 200},
+                {"role": "BTN", "type": "action", "action": "call", "seatNo": 7, "totalBet": 150, "amount": 150},
+            ],
+        },
+        {"type": "flop", "pot_size": 440, "actions": [
+            {"role": "BB", "type": "action", "action": "bet", "seatNo": 1, "totalBet": 220, "amount": 220},
+            {"role": "BTN", "type": "action", "action": "raise", "seatNo": 7, "totalBet": 540, "amount": 540},
+            {"role": "BB", "type": "action", "action": "call", "seatNo": 1, "totalBet": 320, "amount": 320},
+        ]},
+        {"type": "turn", "pot_size": 1520, "actions": [
+            {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+            {"role": "BTN", "type": "action", "action": "bet", "seatNo": 7, "totalBet": 1140, "amount": 1140},
+            {"role": "BB", "type": "action", "action": "fold", "seatNo": 1, "totalBet": 0, "amount": 0},
+        ]},
+    ],
+    "attributes": {"analysis_mode": 1},
+    "win_amount_bb": -15.2,
+    "post_seats": [],
+    "analysis": {"bestCount": 5, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+# 8-max hand with all-in-for-less CALL (not allin action).
+# BB allins 13097, UTG calls 10210 but only has 8010 remaining (capped).
+# Uncalled should be 13097 - 10210 = 2887. PT4 error was (238.67 vs pot: 209.80).
+HAND_177876987904 = {
+    "id": "1215188177876987904",
+    "hole_cards": "KcKd",
+    "community_cards": "8cQh9cJh9h",
+    "hand_score": 5000,
+    "timestamp": 1764526326000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1215168335862562816",
+        "session_id": "",
+        "table_name": "HL9210",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": True,
+        "game_type_code": "nlhe",
+        "max_players": 8,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "UTG",
+    "players": [
+        {"uid": "225291", "name": "Bourbon", "stack": 18480, "seat_no": 3, "position": "UTG1", "win_bet": -20, "net": -20, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "368157", "name": "drippysauce", "stack": 3880, "seat_no": 4, "position": "MP", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "395108", "name": "MikieB", "stack": 10571, "seat_no": 5, "position": "HJ", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "254112", "name": "EvaElfie", "stack": 9880, "seat_no": 6, "position": "CO", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "318411", "name": "VMG", "stack": 9850, "seat_no": 7, "position": "BTN", "win_bet": -20, "net": -20, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "201321", "name": "kikiNkidz", "stack": 12756, "seat_no": 0, "position": "SB", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "275816", "name": "MissBotez", "stack": 23867, "seat_no": 1, "position": "BB", "win_bet": 10750, "net": 10750, "hand_cards": "ThTc", "is_showdown": True, "is_showcard": True},
+        {"uid": "235160", "name": "Ptaters", "stack": 0, "seat_no": 2, "position": "UTG", "win_bet": -10230, "net": -10230, "hand_cards": "KcKd", "is_showdown": True, "is_showcard": True},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 330,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "MP", "type": "action", "action": "call", "seatNo": 4, "totalBet": 100, "amount": 100},
+                {"role": "HJ", "type": "action", "action": "call", "seatNo": 5, "totalBet": 100, "amount": 100},
+                {"role": "CO", "type": "action", "action": "check", "seatNo": 6, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 7, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "call", "seatNo": 0, "totalBet": 80, "amount": 80},
+                {"role": "BB", "type": "action", "action": "raise", "seatNo": 1, "totalBet": 600, "amount": 600},
+                {"role": "UTG", "type": "action", "action": "raise", "seatNo": 2, "totalBet": 2200, "amount": 2200},
+                {"role": "MP", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "fold", "seatNo": 6, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "allin", "seatNo": 1, "totalBet": 13097, "amount": 13097},
+                {"role": "UTG", "type": "action", "action": "call", "seatNo": 2, "totalBet": 10210, "amount": 10210},
+            ],
+        },
+        {"type": "flop", "pot_size": 20980, "actions": []},
+        {"type": "turn", "pot_size": 20980, "actions": []},
+        {"type": "river", "pot_size": 20980, "actions": []},
+    ],
+    "attributes": {"analysis_mode": 1},
+    "win_amount_bb": -204.6,
+    "post_seats": [],
+    "analysis": {"bestCount": 1, "inaccurateCount": 0, "blunderCount": 1},
+}
+
+
+class TestErrorSet3:
+    def test_headsup_pot_checked_down(self):
+        """Heads-up: no antes posted, BTN=SB. SB(20)+BB(50)+call(30)=100. $1.00."""
+        text = convert_hand(HAND_43959074816)
+        assert extract_pot(text) == 1.00
+
+    def test_headsup_no_ante_lines(self):
+        """Heads-up hands should not have 'posts the ante' lines."""
+        text = convert_hand(HAND_43959074816)
+        assert not has_line_containing(text, "posts the ante")
+
+    def test_headsup_has_sb_line(self):
+        """BTN should post small blind in heads-up."""
+        text = convert_hand(HAND_43959074816)
+        assert has_line_containing(text, "Bvamerica97: posts small blind $0.20")
+
+    def test_headsup_pot_with_uncalled(self):
+        """Heads-up: BTN bet on turn, BB folds. Uncalled = turn bet.
+        SB(20)+BB(50)+call(30)+raise_add(150)+call(150)=400 preflop.
+        Flop: bet(220)+raise(540)+call(320)=1480.
+        Turn: bet(1140), fold. Uncalled=1140. Effective=1480. $14.80.
+        """
+        text = convert_hand(HAND_735670153216)
+        assert extract_pot(text) == 14.80
+
+    def test_allin_for_less_via_call(self):
+        """BB allins 13097, UTG calls but capped at 8010 (all-in for less).
+        UTG street_invested=10210, BB street_invested=13097.
+        Uncalled=2887=$28.87. Effective pot=$209.80.
+        """
+        text = convert_hand(HAND_177876987904)
+        assert extract_pot(text) == 209.80
+
+    def test_allin_for_less_via_call_uncalled(self):
+        """Uncalled bet of $28.87 returned to MissBotez (BB)."""
+        text = convert_hand(HAND_177876987904)
+        uncalled = extract_uncalled(text)
+        assert uncalled == 28.87
+        assert has_line_containing(text, "Uncalled bet ($28.87) returned to MissBotez")
