@@ -1,0 +1,680 @@
+"""Convert ClubWPT Gold JSON hand data to PokerStars hand history format."""
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from collections import defaultdict
+from itertools import combinations
+
+DEFAULT_HERO_UID = "235160"
+
+# Card rank values for hand evaluation
+RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+               '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+RANK_NAMES = {2: 'Deuce', 3: 'Three', 4: 'Four', 5: 'Five', 6: 'Six',
+              7: 'Seven', 8: 'Eight', 9: 'Nine', 10: 'Ten', 11: 'Jack',
+              12: 'Queen', 13: 'King', 14: 'Ace'}
+RANK_NAMES_PLURAL = {2: 'Deuces', 3: 'Threes', 4: 'Fours', 5: 'Fives',
+                     6: 'Sixes', 7: 'Sevens', 8: 'Eights', 9: 'Nines',
+                     10: 'Tens', 11: 'Jacks', 12: 'Queens', 13: 'Kings',
+                     14: 'Aces'}
+
+
+def parse_cards(card_str: str) -> list[str]:
+    """Parse a card string like '5c5s' into ['5c', '5s']."""
+    if not card_str:
+        return []
+    cards = []
+    i = 0
+    while i < len(card_str):
+        if i + 1 < len(card_str):
+            cards.append(card_str[i:i+2])
+            i += 2
+        else:
+            break
+    return cards
+
+
+def format_cards(cards: list[str]) -> str:
+    """Format cards for display: ['5c', '5s'] -> '5c 5s'."""
+    return ' '.join(cards)
+
+
+def card_rank(card: str) -> int:
+    return RANK_VALUES[card[0]]
+
+
+def card_suit(card: str) -> str:
+    return card[1]
+
+
+def evaluate_hand(hole_cards: list[str], community_cards: list[str]) -> tuple[int, str]:
+    """Evaluate the best 5-card poker hand and return (rank_score, description).
+
+    rank_score: higher is better
+    Returns the best hand from all 5-card combinations of 7 cards.
+    """
+    all_cards = hole_cards + community_cards
+    if len(all_cards) < 5:
+        return (0, "")
+
+    best_score = -1
+    best_desc = ""
+
+    for combo in combinations(all_cards, 5):
+        score, desc = _evaluate_five(list(combo))
+        if score > best_score:
+            best_score = score
+            best_desc = desc
+
+    return (best_score, best_desc)
+
+
+def _evaluate_five(cards: list[str]) -> tuple[int, str]:
+    """Evaluate exactly 5 cards. Returns (score, description)."""
+    ranks = sorted([card_rank(c) for c in cards], reverse=True)
+    suits = [card_suit(c) for c in cards]
+
+    is_flush = len(set(suits)) == 1
+
+    # Check for straight
+    is_straight = False
+    straight_high = 0
+    unique_ranks = sorted(set(ranks), reverse=True)
+    if len(unique_ranks) == 5:
+        if unique_ranks[0] - unique_ranks[4] == 4:
+            is_straight = True
+            straight_high = unique_ranks[0]
+        # Wheel (A-2-3-4-5)
+        elif unique_ranks == [14, 5, 4, 3, 2]:
+            is_straight = True
+            straight_high = 5
+
+    rank_counts = defaultdict(int)
+    for r in ranks:
+        rank_counts[r] += 1
+
+    counts = sorted(rank_counts.values(), reverse=True)
+
+    # Base scores per hand category (must be spaced far enough apart
+    # that no sub-category score can overlap with the next category)
+    BASE = 100_000_000_000  # 10^11
+
+    if is_straight and is_flush:
+        if straight_high == 14 and min(ranks) == 10:
+            return (8 * BASE + straight_high, "a Royal Flush")
+        return (8 * BASE + straight_high, f"a straight flush, {RANK_NAMES.get(straight_high, str(straight_high))} high")
+
+    if counts == [4, 1]:
+        quad_rank = [r for r, c in rank_counts.items() if c == 4][0]
+        kicker = [r for r, c in rank_counts.items() if c == 1][0]
+        return (7 * BASE + quad_rank * 100 + kicker,
+                f"four of a kind, {RANK_NAMES_PLURAL.get(quad_rank, str(quad_rank))}")
+
+    if counts == [3, 2]:
+        trip_rank = [r for r, c in rank_counts.items() if c == 3][0]
+        pair_rank = [r for r, c in rank_counts.items() if c == 2][0]
+        return (6 * BASE + trip_rank * 100 + pair_rank,
+                f"a full house, {RANK_NAMES_PLURAL.get(trip_rank, str(trip_rank))} full of {RANK_NAMES_PLURAL.get(pair_rank, str(pair_rank))}")
+
+    if is_flush:
+        score = 5 * BASE
+        for i, r in enumerate(ranks):
+            score += r * (100 ** (4 - i))
+        return (score, f"a flush, {RANK_NAMES.get(ranks[0], str(ranks[0]))} high")
+
+    if is_straight:
+        return (4 * BASE + straight_high,
+                f"a straight, {RANK_NAMES.get(straight_high, str(straight_high))} high")
+
+    if counts == [3, 1, 1]:
+        trip_rank = [r for r, c in rank_counts.items() if c == 3][0]
+        kickers = sorted([r for r, c in rank_counts.items() if c == 1], reverse=True)
+        return (3 * BASE + trip_rank * 10000 + kickers[0] * 100 + kickers[1],
+                f"three of a kind, {RANK_NAMES_PLURAL.get(trip_rank, str(trip_rank))}")
+
+    if counts == [2, 2, 1]:
+        pairs = sorted([r for r, c in rank_counts.items() if c == 2], reverse=True)
+        kicker = [r for r, c in rank_counts.items() if c == 1][0]
+        return (2 * BASE + pairs[0] * 10000 + pairs[1] * 100 + kicker,
+                f"two pair, {RANK_NAMES_PLURAL.get(pairs[0], str(pairs[0]))} and {RANK_NAMES_PLURAL.get(pairs[1], str(pairs[1]))}")
+
+    if counts == [2, 1, 1, 1]:
+        pair_rank = [r for r, c in rank_counts.items() if c == 2][0]
+        kickers = sorted([r for r, c in rank_counts.items() if c == 1], reverse=True)
+        return (1 * BASE + pair_rank * 1000000 + kickers[0] * 10000 + kickers[1] * 100 + kickers[2],
+                f"a pair of {RANK_NAMES_PLURAL.get(pair_rank, str(pair_rank))}")
+
+    # High card
+    score = 0
+    for i, r in enumerate(ranks):
+        score += r * (100 ** (4 - i))
+    return (score, f"high card, {RANK_NAMES.get(ranks[0], str(ranks[0]))}")
+
+
+def fmt_amount(chips: int | float) -> str:
+    """Format chip amount as dollar string: 250 -> '$2.50'."""
+    val = chips / 100.0
+    if val == int(val):
+        return f"${int(val):.2f}"
+    return f"${val:.2f}"
+
+
+def _find_player_by_position(players: list[dict], position: str) -> dict | None:
+    for p in players:
+        if p['position'] == position:
+            return p
+    return None
+
+
+def _find_straddle_player(players: list[dict]) -> dict | None:
+    """Find the UTG player who posts the straddle."""
+    return _find_player_by_position(players, 'UTG')
+
+
+def _get_seat_no_map(players: list[dict]) -> dict[int, dict]:
+    """Map seat_no -> player dict."""
+    return {p['seat_no']: p for p in players}
+
+
+def _player_folded_on_street(hand: dict, seat_no: int) -> str | None:
+    """Return the street name where a player folded, or None if they didn't fold."""
+    for street in hand.get('hand_history', []):
+        for action in street.get('actions', []):
+            if action['seatNo'] == seat_no and action['action'] == 'fold':
+                return street['type']
+    return None
+
+
+def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
+    """Convert a single hand JSON object to PokerStars hand history format."""
+    lines = []
+    table = hand['table']
+    players = hand['players']
+    seat_map = _get_seat_no_map(players)
+
+    sb = table['small_blind']
+    bb = table['big_blind']
+    ante = table['ante']
+    has_straddle = table.get('has_straddle', False)
+    straddle_amount = bb * 2 if has_straddle else 0
+    max_players = table['max_players']
+
+    # FIX: API 'stack' is the ENDING stack, not starting.
+    # starting = ending - net (where net == win_bet)
+    for p in players:
+        p['starting_stack'] = p['stack'] - p.get('win_bet', 0)
+
+    # Timestamp (PT4 expects ET)
+    ts = hand['timestamp'] / 1000.0
+    dt = datetime.fromtimestamp(ts, tz=ZoneInfo('America/New_York'))
+    date_str = dt.strftime('%Y/%m/%d %H:%M:%S ET')
+
+    # Find button
+    btn_player = _find_player_by_position(players, 'BTN')
+    btn_seat = (btn_player['seat_no'] + 1) if btn_player else 1
+
+    # Find SB, BB, UTG (straddle)
+    sb_player = _find_player_by_position(players, 'SB')
+    bb_player = _find_player_by_position(players, 'BB')
+    straddle_player = _find_straddle_player(players) if has_straddle else None
+
+    # Header — truncate 19-digit ID to 12 digits for PT4 compatibility
+    hand_id = str(int(hand['id']) % 1_000_000_000_000)
+    lines.append(
+        f"PokerStars Hand #{hand_id}: Hold'em No Limit ({fmt_amount(sb)}/{fmt_amount(bb)} USD) - {date_str}"
+    )
+
+    # Table line — readable name instead of raw numeric ID
+    table_name = f"ClubWPT #{int(table['table_id']) % 100000}"
+    lines.append(f"Table '{table_name}' {max_players}-max Seat #{btn_seat} is the button")
+
+    # FIX: Seat lines use STARTING stacks (not ending)
+    for p in sorted(players, key=lambda x: x['seat_no']):
+        seat = p['seat_no'] + 1
+        lines.append(f"Seat {seat}: {p['name']} ({fmt_amount(p['starting_stack'])} in chips)")
+
+    # Antes — individual per player
+    if ante > 0:
+        for p in sorted(players, key=lambda x: x['seat_no']):
+            lines.append(f"{p['name']}: posts the ante {fmt_amount(ante)}")
+
+    # Blinds
+    if sb_player:
+        lines.append(f"{sb_player['name']}: posts small blind {fmt_amount(sb)}")
+    if bb_player:
+        lines.append(f"{bb_player['name']}: posts big blind {fmt_amount(bb)}")
+
+    # NOTE: Straddle is handled as a synthetic preflop raise (not a blind line)
+    # because PT4 doesn't support "posts the straddle" in PokerStars format.
+
+    # Post seats (players who posted to enter)
+    post_amount = straddle_amount if has_straddle else bb
+    post_seat_set = set(hand.get('post_seats', []))
+    for ps in sorted(post_seat_set):
+        if ps in seat_map:
+            pp = seat_map[ps]
+            if pp.get('position') not in ('SB', 'BB', 'UTG' if has_straddle else ''):
+                lines.append(f"{pp['name']}: posts big blind {fmt_amount(post_amount)}")
+
+    # Hole cards
+    lines.append("*** HOLE CARDS ***")
+    hero = None
+    for p in players:
+        if p['uid'] == hero_uid:
+            hero = p
+            break
+    if hero and hero.get('hand_cards'):
+        hero_cards = parse_cards(hero['hand_cards'])
+        lines.append(f"Dealt to {hero['name']} [{format_cards(hero_cards)}]")
+
+    # Parse community cards
+    community = parse_cards(hand.get('community_cards', ''))
+    flop_cards = community[:3] if len(community) >= 3 else []
+    turn_card = community[3] if len(community) >= 4 else None
+    river_card = community[4] if len(community) >= 5 else None
+
+    # Initial investments from forced bets (including straddle as blind)
+    initial_invested = {}
+    for p in players:
+        initial_invested[p['seat_no']] = 0
+    if sb_player:
+        initial_invested[sb_player['seat_no']] = sb
+    if bb_player:
+        initial_invested[bb_player['seat_no']] = bb
+    for ps in post_seat_set:
+        if ps in seat_map:
+            pp = seat_map[ps]
+            if pp.get('position') not in ('SB', 'BB', 'UTG' if has_straddle else ''):
+                initial_invested[ps] = post_amount
+
+    # FIX: Remaining stacks use STARTING stacks (not ending)
+    remaining_stack = {}
+    for p in players:
+        remaining_stack[p['seat_no']] = p['starting_stack'] - ante
+    if sb_player:
+        remaining_stack[sb_player['seat_no']] -= sb
+    if bb_player:
+        remaining_stack[bb_player['seat_no']] -= bb
+    for ps in post_seat_set:
+        if ps in seat_map:
+            pp = seat_map[ps]
+            if pp.get('position') not in ('SB', 'BB', 'UTG' if has_straddle else ''):
+                remaining_stack[ps] -= post_amount
+
+    # FIX: Track total_pot from forced bets + actions (not from win_bet)
+    total_pot = ante * len(players)
+    if sb_player:
+        total_pot += sb
+    if bb_player:
+        total_pot += bb
+    for ps in post_seat_set:
+        if ps in seat_map:
+            pp = seat_map[ps]
+            if pp.get('position') not in ('SB', 'BB', 'UTG' if has_straddle else ''):
+                total_pot += post_amount
+
+    for street in hand.get('hand_history', []):
+        street_type = street['type']
+        actions = street.get('actions', [])
+
+        if street_type == 'flop' and flop_cards:
+            lines.append(f"*** FLOP *** [{format_cards(flop_cards)}]")
+        elif street_type == 'turn' and turn_card:
+            lines.append(f"*** TURN *** [{format_cards(flop_cards)}] [{turn_card}]")
+        elif street_type == 'river' and river_card:
+            flop_turn = flop_cards + ([turn_card] if turn_card else [])
+            lines.append(f"*** RIVER *** [{format_cards(flop_turn)}] [{river_card}]")
+
+        if not actions:
+            continue
+
+        # Reset per-street tracking
+        if street_type == 'preflop':
+            street_invested = dict(initial_invested)
+            current_bet = bb
+        else:
+            street_invested = {p['seat_no']: 0 for p in players}
+            current_bet = 0
+
+        # Synthetic straddle as a preflop raise (PT4 can't parse "posts the straddle")
+        if street_type == 'preflop' and has_straddle and straddle_player:
+            s_seat = straddle_player['seat_no']
+            s_name = straddle_player['name']
+            s_additional = straddle_amount
+            remaining_stack[s_seat] -= s_additional
+            street_invested[s_seat] = straddle_amount
+            s_raise_by = straddle_amount - current_bet
+            current_bet = straddle_amount
+            total_pot += s_additional
+            lines.append(f"{s_name}: raises {fmt_amount(s_raise_by)} to {fmt_amount(straddle_amount)}")
+
+        for action in actions:
+            seat = action['seatNo']
+            if seat not in seat_map:
+                continue
+            player = seat_map[seat]
+            name = player['name']
+            act = action['action']
+            amount = action.get('amount', 0)
+
+            # For raise/bet/allin: API 'amount' is player's TOTAL for the street
+            # (includes their blind/straddle). For call: amount is ADDITIONAL only.
+            if act == 'fold':
+                lines.append(f"{name}: folds")
+
+            elif act == 'check':
+                # In straddle games, preflop "check" from players who haven't
+                # matched the straddle is actually a call (API treats straddle
+                # as a blind, so "checking" means calling the straddle amount).
+                if (street_type == 'preflop' and has_straddle
+                        and street_invested.get(seat, 0) < current_bet):
+                    call_amount = current_bet - street_invested.get(seat, 0)
+                    avail = max(remaining_stack.get(seat, 0), 0)
+                    if avail <= 0:
+                        continue
+                    call_amount = min(call_amount, avail)
+                    remaining_stack[seat] -= call_amount
+                    street_invested[seat] = street_invested.get(seat, 0) + call_amount
+                    total_pot += call_amount
+                    is_allin = remaining_stack[seat] <= 0
+                    line = f"{name}: calls {fmt_amount(call_amount)}"
+                    if is_allin:
+                        line += " and is all-in"
+                    lines.append(line)
+                else:
+                    lines.append(f"{name}: checks")
+
+            elif act == 'call':
+                # amount = additional chips only
+                avail = max(remaining_stack.get(seat, 0), 0)
+                if avail <= 0:
+                    continue
+                amount = min(amount, avail)
+                remaining_stack[seat] -= amount
+                street_invested[seat] = street_invested.get(seat, 0) + amount
+                total_pot += amount
+                is_allin = remaining_stack[seat] <= 0
+                line = f"{name}: calls {fmt_amount(amount)}"
+                if is_allin:
+                    line += " and is all-in"
+                lines.append(line)
+
+            elif act == 'bet':
+                # amount = total for street (same as additional since no prior on post-flop)
+                avail = max(remaining_stack.get(seat, 0), 0)
+                if avail <= 0:
+                    continue
+                amount = min(amount, avail)
+                remaining_stack[seat] -= amount
+                street_invested[seat] = amount
+                current_bet = amount
+                total_pot += amount
+                is_allin = remaining_stack[seat] <= 0
+                line = f"{name}: bets {fmt_amount(amount)}"
+                if is_allin:
+                    line += " and is all-in"
+                lines.append(line)
+
+            elif act == 'raise':
+                # amount = player's TOTAL for the street (includes blind/straddle/prior)
+                prev_invested = street_invested.get(seat, 0)
+                additional = amount - prev_invested
+                avail = max(remaining_stack.get(seat, 0), 0)
+                if avail <= 0:
+                    continue
+                additional = min(additional, avail)
+                new_total = prev_invested + additional
+                remaining_stack[seat] -= additional
+                street_invested[seat] = new_total
+                raise_by = new_total - current_bet
+                current_bet = new_total
+                total_pot += additional
+                is_allin = remaining_stack[seat] <= 0
+                line = f"{name}: raises {fmt_amount(raise_by)} to {fmt_amount(new_total)}"
+                if is_allin:
+                    line += " and is all-in"
+                lines.append(line)
+
+            elif act == 'allin':
+                # amount = player's TOTAL for the street
+                prev_invested = street_invested.get(seat, 0)
+                additional = amount - prev_invested
+                avail = max(remaining_stack.get(seat, 0), 0)
+                if avail <= 0:
+                    continue
+                additional = min(additional, avail)
+                new_total = prev_invested + additional
+                remaining_stack[seat] -= additional
+                street_invested[seat] = new_total
+                total_pot += additional
+                if current_bet == 0:
+                    line = f"{name}: bets {fmt_amount(new_total)} and is all-in"
+                    current_bet = new_total
+                elif new_total > current_bet:
+                    raise_by = new_total - current_bet
+                    line = f"{name}: raises {fmt_amount(raise_by)} to {fmt_amount(new_total)} and is all-in"
+                    current_bet = new_total
+                else:
+                    # All-in for less than current bet = call
+                    line = f"{name}: calls {fmt_amount(additional)} and is all-in"
+                lines.append(line)
+
+    # FIX: Compute uncalled bet and effective pot from action tracking
+    uncalled_amount, uncalled_seat = _calc_uncalled(
+        hand, has_straddle=has_straddle, straddle_amount=straddle_amount, bb=bb)
+    if uncalled_amount > 0:
+        if uncalled_seat is not None and uncalled_seat in seat_map:
+            lines.append(f"Uncalled bet ({fmt_amount(uncalled_amount)}) returned to {seat_map[uncalled_seat]['name']}")
+    effective_pot = total_pot - uncalled_amount
+
+    # Showdown
+    showdown_players = [p for p in players if p.get('is_showdown') and p.get('hand_cards')]
+    winners = [p for p in players if p.get('win_bet', 0) > 0]
+
+    if showdown_players:
+        lines.append("*** SHOW DOWN ***")
+        for p in sorted(showdown_players, key=lambda x: x['seat_no']):
+            cards = parse_cards(p['hand_cards'])
+            _, hand_desc = evaluate_hand(cards, community)
+            if not hand_desc:
+                hand_desc = "a hand"
+            if p.get('win_bet', 0) > 0:
+                collected = _winner_share(p, winners, effective_pot)
+                lines.append(f"{p['name']}: shows [{format_cards(cards)}] ({hand_desc})")
+                lines.append(f"{p['name']} collected {fmt_amount(collected)} from pot")
+            else:
+                lines.append(f"{p['name']}: shows [{format_cards(cards)}] ({hand_desc})")
+    else:
+        for w in winners:
+            collected = _winner_share(w, winners, effective_pot)
+            lines.append(f"{w['name']} collected {fmt_amount(collected)} from pot")
+            if w.get('hand_cards') and not w.get('is_showdown'):
+                lines.append(f"{w['name']}: doesn't show hand")
+
+    # Summary
+    lines.append("*** SUMMARY ***")
+    lines.append(f"Total pot {fmt_amount(effective_pot)} | Rake $0.00")
+
+    if community:
+        lines.append(f"Board [{format_cards(community)}]")
+
+    # Seat results
+    for p in sorted(players, key=lambda x: x['seat_no']):
+        seat = p['seat_no'] + 1
+        pos = p['position']
+        name = p['name']
+        cards = parse_cards(p.get('hand_cards', ''))
+        win_bet = p.get('win_bet', 0)
+
+        pos_label = {"BTN": "button", "SB": "small blind", "BB": "big blind"}.get(pos, "")
+        pos_str = f" ({pos_label})" if pos_label else ""
+
+        fold_street = _player_folded_on_street(hand, p['seat_no'])
+
+        if win_bet > 0 and p.get('is_showdown') and cards:
+            _, hand_desc = evaluate_hand(cards, community)
+            if not hand_desc:
+                hand_desc = "a hand"
+            won_amount = _winner_share(p, winners, effective_pot)
+            lines.append(
+                f"Seat {seat}: {name}{pos_str} showed [{format_cards(cards)}] "
+                f"and won ({fmt_amount(won_amount)}) with {hand_desc}"
+            )
+        elif win_bet > 0:
+            won_amount = _winner_share(p, winners, effective_pot)
+            lines.append(f"Seat {seat}: {name}{pos_str} collected ({fmt_amount(won_amount)})")
+        elif p.get('is_showdown') and cards:
+            _, hand_desc = evaluate_hand(cards, community)
+            if not hand_desc:
+                hand_desc = "a hand"
+            lines.append(
+                f"Seat {seat}: {name}{pos_str} showed [{format_cards(cards)}] "
+                f"and lost with {hand_desc}"
+            )
+        elif fold_street:
+            fold_desc = _fold_description(fold_street, hand, p['seat_no'],
+                                          sb_player, bb_player, straddle_player,
+                                          has_straddle)
+            lines.append(f"Seat {seat}: {name}{pos_str} {fold_desc}")
+        else:
+            lines.append(f"Seat {seat}: {name}{pos_str} mucked")
+
+    return '\n'.join(lines)
+
+
+def _calc_uncalled(hand, has_straddle=False, straddle_amount=0, bb=0):
+    """Calculate the uncalled bet amount and the seat that gets it returned.
+
+    Returns (uncalled_amount, seat_no_or_None).
+
+    Finds the last truly aggressive action (bet/raise/allin-over-current-bet),
+    then checks what happened after it:
+    - 'call' action → bet was fully matched → uncalled = 0
+    - 'allin' for less → partial match → uncalled = aggro - allin_amount
+    - nothing matched → uncalled = aggro - previous bet level
+
+    This avoids tracking per-player street investments, which are unreliable
+    on preflop because forced bets (SB/BB/straddle) aren't in the API actions.
+    """
+    history = hand.get('hand_history', [])
+    if not history:
+        return 0, None
+
+    last_street = None
+    for street in reversed(history):
+        if street.get('actions'):
+            last_street = street
+            break
+    if not last_street:
+        return 0, None
+
+    actions = last_street['actions']
+    if not actions:
+        return 0, None
+
+    street_type = last_street['type']
+
+    if street_type == 'preflop':
+        current_bet = straddle_amount if has_straddle else bb
+    else:
+        current_bet = 0
+
+    # Find the last truly aggressive action, tracking prev bet level
+    last_aggro_seat = None
+    last_aggro_amount = 0
+    last_aggro_idx = -1
+    prev_bet = current_bet
+
+    for i, action in enumerate(actions):
+        act = action['action']
+        amount = action.get('amount', 0)
+
+        if act in ('bet', 'raise'):
+            prev_bet = current_bet
+            current_bet = amount
+            last_aggro_seat = action['seatNo']
+            last_aggro_amount = amount
+            last_aggro_idx = i
+        elif act == 'allin':
+            if amount > current_bet:
+                prev_bet = current_bet
+                current_bet = amount
+                last_aggro_seat = action['seatNo']
+                last_aggro_amount = amount
+                last_aggro_idx = i
+
+    if last_aggro_seat is None:
+        return 0, None
+
+    # Check what happens after the last aggressive action
+    has_full_call = False
+    max_allin_for_less = 0
+
+    for action in actions[last_aggro_idx + 1:]:
+        act = action['action']
+        if act == 'call':
+            # A call always means the player matched the bet
+            has_full_call = True
+            break
+        elif act == 'allin':
+            # Allin after last aggro must be for-less (otherwise it would
+            # have been the last aggro). Track as partial match.
+            max_allin_for_less = max(max_allin_for_less, action.get('amount', 0))
+
+    if has_full_call:
+        return 0, None
+
+    if max_allin_for_less > 0:
+        uncalled = max(last_aggro_amount - max_allin_for_less, 0)
+    else:
+        uncalled = max(last_aggro_amount - prev_bet, 0)
+
+    if uncalled > 0:
+        return uncalled, last_aggro_seat
+    return 0, None
+
+
+def _winner_share(winner, all_winners, effective_pot):
+    """Calculate a winner's share of the effective pot."""
+    if len(all_winners) == 1:
+        return effective_pot
+    total_won = sum(w['win_bet'] for w in all_winners)
+    if total_won <= 0:
+        return effective_pot // len(all_winners)
+    return int(round(winner['win_bet'] / total_won * effective_pot))
+
+
+def _fold_description(fold_street: str, hand: dict, seat_no: int,
+                      sb_player, bb_player, straddle_player, has_straddle) -> str:
+    """Generate fold description for summary line."""
+    did_bet = False
+    for street in hand.get('hand_history', []):
+        if street['type'] != 'preflop':
+            break
+        for action in street.get('actions', []):
+            if action['seatNo'] == seat_no and action['action'] in ('call', 'raise', 'bet', 'allin'):
+                did_bet = True
+                break
+
+    if fold_street == 'preflop':
+        if not did_bet:
+            return "folded before Flop (didn't bet)"
+        return "folded before Flop"
+    elif fold_street == 'flop':
+        return "folded on the Flop"
+    elif fold_street == 'turn':
+        return "folded on the Turn"
+    elif fold_street == 'river':
+        return "folded on the River"
+    return "folded"
+
+
+def convert_hands_to_file(hands: list[dict], hero_uid: str = DEFAULT_HERO_UID) -> str:
+    """Convert a list of hand objects to a single PokerStars HH file string."""
+    converted = []
+    for hand in hands:
+        try:
+            converted.append(convert_hand(hand, hero_uid=hero_uid))
+        except Exception as e:
+            print(f"Error converting hand {hand.get('id', 'unknown')}: {e}")
+    return '\n\n\n'.join(converted) + '\n'
