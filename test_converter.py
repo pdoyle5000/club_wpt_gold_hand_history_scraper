@@ -1112,3 +1112,227 @@ class TestErrorSet3:
         uncalled = extract_uncalled(text)
         assert uncalled == 28.87
         assert has_line_containing(text, "Uncalled bet ($28.87) returned to MissBotez")
+
+
+# ---------------------------------------------------------------------------
+# Error Set 4: post_seats handling (post-to-enter = BB, not straddle)
+# ---------------------------------------------------------------------------
+
+# Hand #575459119104: 6-max straddle, 1 post_seat (seat 0, CO).
+# CO posts BB ($0.50) to enter, then raises to $8.25 after HJ opens $2.50.
+# PT4 error was pot $7.90 vs $8.40 (off by $0.50 = 1 post-seat).
+HAND_575459119104 = {
+    "id": "1297907575459119104",
+    "hole_cards": "Qh6s",
+    "community_cards": "",
+    "hand_score": 0,
+    "timestamp": 1784248167000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1297658791320588288",
+        "session_id": "",
+        "table_name": "",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": True,
+        "game_type_code": "nlhe",
+        "max_players": 6,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "BTN",
+    "players": [
+        {"uid": "360074", "name": "Cheesepizza97", "stack": 15596, "seat_no": 7, "position": "HJ", "win_bet": -270, "net": -270, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "233764", "name": "GaybetGary", "stack": 10520, "seat_no": 0, "position": "CO", "win_bet": 520, "net": 520, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "235160", "name": "Ptaters", "stack": 12281, "seat_no": 2, "position": "BTN", "win_bet": -20, "net": -20, "hand_cards": "Qh6s", "is_showdown": False, "is_showcard": False},
+        {"uid": "601055", "name": "PourMeACup", "stack": 2868, "seat_no": 3, "position": "SB", "win_bet": -40, "net": -40, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "655241", "name": "Tralfalz", "stack": 2570, "seat_no": 4, "position": "BB", "win_bet": -70, "net": -70, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "686974", "name": "Outerspaceman", "stack": 10662, "seat_no": 5, "position": "UTG", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 290,
+            "actions": [
+                {"role": "HJ", "type": "action", "action": "raise", "seatNo": 7, "totalBet": 250, "amount": 250},
+                {"role": "CO", "type": "action", "action": "raise", "seatNo": 0, "totalBet": 825, "amount": 825},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "fold", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 7, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": -0.4,
+    "post_seats": [0],
+    "analysis": {"bestCount": 0, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+# Hand #555942768640: 7-max straddle, 2 post_seats (seats 0, 1).
+# Both post seats fold after 3-bet. PT4 error was pot $11.10 vs $12.10.
+HAND_555942768640 = {
+    "id": "1297910555942768640",
+    "hole_cards": "4c5c",
+    "community_cards": "",
+    "hand_score": 0,
+    "timestamp": 1784248878000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1297816455151448064",
+        "session_id": "",
+        "table_name": "",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": True,
+        "game_type_code": "nlhe",
+        "max_players": 7,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "SB",
+    "players": [
+        {"uid": "686184", "name": "YNH9362", "stack": 9636, "seat_no": 7, "position": "MP", "win_bet": -20, "net": -20, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "266497", "name": "Krabman1234", "stack": 2080, "seat_no": 0, "position": "HJ", "win_bet": -420, "net": -420, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "328519", "name": "LimpRaise2233", "stack": 7690, "seat_no": 1, "position": "CO", "win_bet": 690, "net": 690, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "206394", "name": "DAD", "stack": 9980, "seat_no": 2, "position": "BTN", "win_bet": -20, "net": -20, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "235160", "name": "Ptaters", "stack": 16858, "seat_no": 3, "position": "SB", "win_bet": -40, "net": -40, "hand_cards": "4c5c", "is_showdown": False, "is_showcard": False},
+        {"uid": "302271", "name": "Shmoosie", "stack": 15517, "seat_no": 4, "position": "BB", "win_bet": -70, "net": -70, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "437267", "name": "Gandalf92", "stack": 8242, "seat_no": 6, "position": "UTG", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 310,
+            "actions": [
+                {"role": "MP", "type": "action", "action": "fold", "seatNo": 7, "totalBet": 0, "amount": 0},
+                {"role": "HJ", "type": "action", "action": "raise", "seatNo": 0, "totalBet": 400, "amount": 400},
+                {"role": "CO", "type": "action", "action": "raise", "seatNo": 1, "totalBet": 1000, "amount": 1000},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "fold", "seatNo": 6, "totalBet": 0, "amount": 0},
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 0, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": -0.8,
+    "post_seats": [0, 1],
+    "analysis": {"bestCount": 0, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+# Hand #385717567488: 8-max straddle, 1 post_seat (seat 0, HJ).
+# HJ posts BB, then goes allin. Has showdown. PT4 "invalid stack" error.
+HAND_385717567488 = {
+    "id": "1297909385717567488",
+    "hole_cards": "9h5h",
+    "community_cards": "QsJc8h3sKc",
+    "hand_score": 0,
+    "timestamp": 1784248599000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1297816455151448064",
+        "session_id": "",
+        "table_name": "",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": True,
+        "game_type_code": "nlhe",
+        "max_players": 8,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "SB",
+    "players": [
+        {"uid": "437267", "name": "Gandalf92", "stack": 9880, "seat_no": 6, "position": "UTG1", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "686184", "name": "YNH9362", "stack": 4926, "seat_no": 7, "position": "MP", "win_bet": -2500, "net": -2500, "hand_cards": "5cAc", "is_showdown": True, "is_showcard": True},
+        {"uid": "210663", "name": "INVICTUS", "stack": 5390, "seat_no": 0, "position": "HJ", "win_bet": 2890, "net": 2890, "hand_cards": "QcKh", "is_showdown": True, "is_showcard": True},
+        {"uid": "292886", "name": "snappycrappy", "stack": 13888, "seat_no": 1, "position": "CO", "win_bet": -20, "net": -20, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "636059", "name": "NotchLifter3840", "stack": 7647, "seat_no": 2, "position": "BTN", "win_bet": -20, "net": -20, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "235160", "name": "Ptaters", "stack": 15675, "seat_no": 3, "position": "SB", "win_bet": -40, "net": -40, "hand_cards": "9h5h", "is_showdown": False, "is_showcard": False},
+        {"uid": "302271", "name": "Shmoosie", "stack": 8360, "seat_no": 4, "position": "BB", "win_bet": -70, "net": -70, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "356681", "name": "AndrewHan", "stack": 11184, "seat_no": 5, "position": "UTG", "win_bet": -120, "net": -120, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 330,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "call", "seatNo": 6, "totalBet": 100, "amount": 100},
+                {"role": "MP", "type": "action", "action": "raise", "seatNo": 7, "totalBet": 500, "amount": 500},
+                {"role": "HJ", "type": "action", "action": "allin", "seatNo": 0, "totalBet": 2480, "amount": 2480},
+                {"role": "CO", "type": "action", "action": "fold", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "fold", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "UTG1", "type": "action", "action": "fold", "seatNo": 6, "totalBet": 0, "amount": 0},
+                {"role": "MP", "type": "action", "action": "call", "seatNo": 7, "totalBet": 1980, "amount": 1980},
+            ],
+        },
+        {"type": "flop", "pot_size": 5390, "actions": []},
+        {"type": "turn", "pot_size": 5390, "actions": []},
+        {"type": "river", "pot_size": 5390, "actions": []},
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": -0.8,
+    "post_seats": [0],
+    "analysis": {"bestCount": 0, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+class TestErrorSet4PostSeats:
+    def test_hand_575459119104_pot(self):
+        """6-max straddle, 1 post_seat (CO). CO posts BB then 3-bets.
+        Antes: 6*20=120, SB:20, BB:50, straddle:100, post:50(BB).
+        HJ raise:250, CO raise:825(total, additional=825-50=775).
+        Everyone folds. Uncalled: 825-250=575.
+        Pot: 120+20+50+100+50+250+775-575 = 790. $7.90.
+        """
+        text = convert_hand(HAND_575459119104)
+        assert extract_pot(text) == 7.90
+
+    def test_hand_575459119104_post_line(self):
+        """CO should post big blind $0.50, not $1.00."""
+        text = convert_hand(HAND_575459119104)
+        assert has_line_containing(text, "GaybetGary: posts big blind $0.50")
+        assert not has_line_containing(text, "GaybetGary: posts big blind $1.00")
+
+    def test_hand_555942768640_pot(self):
+        """7-max straddle, 2 post_seats (HJ, CO). Both post BB then act.
+        HJ raises to 400, CO 3-bets to 1000, everyone folds.
+        Uncalled: 1000-400=600.
+        Antes: 7*20=140, SB:20, BB:50, straddle:100, 2 posts:2*50=100.
+        HJ raise additional: 400-50=350. CO raise additional: 1000-50=950.
+        Total: 140+20+50+100+100+350+950=1710. Minus uncalled 600=1110. $11.10.
+        """
+        text = convert_hand(HAND_555942768640)
+        assert extract_pot(text) == 11.10
+
+    def test_hand_555942768640_post_lines(self):
+        """Both HJ and CO should post big blind $0.50."""
+        text = convert_hand(HAND_555942768640)
+        assert has_line_containing(text, "Krabman1234: posts big blind $0.50")
+        assert has_line_containing(text, "LimpRaise2233: posts big blind $0.50")
+
+    def test_hand_385717567488_pot(self):
+        """8-max straddle, 1 post_seat (HJ). HJ posts BB then allins.
+        Antes: 8*20=160, SB:20, BB:50, straddle:100, post:50(BB).
+        UTG1 call:100, MP raise:500, HJ allin:2480 (total, add=2480-50=2430).
+        MP call:1980. Others fold. No uncalled (MP matches 2480 total w/ straddle).
+        Pot from actions: 160+20+50+100+50+100+500+2430+1980=5390. $53.90.
+        """
+        text = convert_hand(HAND_385717567488)
+        assert extract_pot(text) == 53.90
+
+    def test_hand_385717567488_post_line(self):
+        """HJ should post big blind $0.50."""
+        text = convert_hand(HAND_385717567488)
+        assert has_line_containing(text, "INVICTUS: posts big blind $0.50")

@@ -254,7 +254,13 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
     # because PT4 doesn't support "posts the straddle" in PokerStars format.
 
     # Post seats (players who posted to enter)
-    post_amount = straddle_amount if has_straddle else bb
+    # Post-to-enter is always the BB amount. In straddle games, the remaining
+    # gap (straddle - BB) is covered by the check-to-call conversion or is
+    # included in the player's raise/call action total from the API.
+    # Using BB (not straddle) is critical because PT4 interprets "posts big
+    # blind $X" where X > BB as having a dead component, which breaks its
+    # street investment tracking and causes pot size / stack errors.
+    post_amount = bb
     post_seat_set = set(hand.get('post_seats', []))
     for ps in sorted(post_seat_set):
         if ps in seat_map:

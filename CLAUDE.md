@@ -9,7 +9,7 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 - `scraper.py` — Async httpx client that fetches paginated hand data from `https://analysis-b2b.quintace.ai/api/players/hands`
 - `converter.py` — Converts Quintace JSON hand objects to PokerStars `.txt` format
 - `main.py` — CLI entry point with `--scrape-only`, `--convert-only`, and full pipeline modes
-- `test_converter.py` — pytest suite (45 tests) covering all conversion logic and known edge cases
+- `test_converter.py` — pytest suite (48 tests) covering all conversion logic and known edge cases
 
 ## Key API Details
 
@@ -25,6 +25,7 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 3. **All-in-for-less uncalled bets**: When a player goes all-in for less than the current bet, the difference must be returned as an uncalled bet to the last aggressor.
 4. **Uncalled bet calculation**: Uses inline max/second-max computation on per-player `street_invested` values, which are correctly capped at available stack during action processing. This handles all-in-for-less via call correctly.
 5. **Hand IDs**: The API uses 19-digit IDs; these are truncated to 12 digits (`id % 1_000_000_000_000`) for PT4 compatibility.
+6. **Post-to-enter (post_seats)**: Players who post to enter always post BB amount (not straddle). PT4 interprets `posts big blind $X` where X > BB as having a dead component, which breaks street investment tracking.
 
 ## Running Tests
 
