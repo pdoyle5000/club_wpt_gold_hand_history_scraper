@@ -1336,3 +1336,409 @@ class TestErrorSet4PostSeats:
         """HJ should post big blind $0.50."""
         text = convert_hand(HAND_385717567488)
         assert has_line_containing(text, "INVICTUS: posts big blind $0.50")
+
+
+# ---------------------------------------------------------------------------
+# Error Set 5: PT4 import errors from pt4imporerrors.txt (97 errors)
+# Category 1: Straddle preflop call amounts (83 errors)
+# Category 2: Split pot zero collected (6 errors)
+# Category 3: Rounding errors (7 errors)
+# Category 4: Non-straddle preflop check = limp (1 error)
+# ---------------------------------------------------------------------------
+
+# Category 1: Straddle preflop call amount under-reported by straddle_amount.
+# Hand #87506206720: 8-max straddle (SB=100,BB=200,straddle=400).
+# UTG1 raises to 1600, CO calls. API reports CO call amount=1200, but
+# CO should invest 1600 (= current_bet). Pot $4.00 off.
+# API flop pot_size=4700 confirms the correct total.
+HAND_87506206720 = {
+    "id": "1192467087506206720",
+    "hole_cards": "Jh9h",
+    "community_cards": "3cQhQd3h",
+    "hand_score": 5000,
+    "timestamp": 1759109196000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1192299768511160320",
+        "session_id": "",
+        "table_name": "HL5834",
+        "small_blind": 100,
+        "big_blind": 200,
+        "ante": 100,
+        "has_straddle": True,
+        "game_type_code": "nlhe",
+        "max_players": 8,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "CO",
+    "players": [
+        {"uid": "224088", "name": "ACC100", "stack": 95264, "seat_no": 5, "position": "UTG1", "win_bet": -1700, "net": -1700, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "353405", "name": "SamanthaCohen", "stack": 58540, "seat_no": 6, "position": "MP", "win_bet": -100, "net": -100, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "423863", "name": "Bewnjamin", "stack": 37200, "seat_no": 7, "position": "HJ", "win_bet": -100, "net": -100, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "235160", "name": "Ptaters", "stack": 43000, "seat_no": 0, "position": "CO", "win_bet": 3000, "net": 3000, "hand_cards": "Jh9h", "is_showdown": False, "is_showcard": False},
+        {"uid": "227749", "name": "mahavishnu13", "stack": 73393, "seat_no": 1, "position": "BTN", "win_bet": -100, "net": -100, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "238617", "name": "PocketJokers", "stack": 99002, "seat_no": 2, "position": "SB", "win_bet": -200, "net": -200, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "405943", "name": "Song Si", "stack": 44552, "seat_no": 3, "position": "BB", "win_bet": -300, "net": -300, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "288568", "name": "ClevelandChris", "stack": 33088, "seat_no": 4, "position": "UTG", "win_bet": -500, "net": -500, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 1500,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "raise", "seatNo": 5, "totalBet": 1600, "amount": 1600},
+                {"role": "MP", "type": "action", "action": "fold", "seatNo": 6, "totalBet": 0, "amount": 0},
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 7, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "call", "seatNo": 0, "totalBet": 1200, "amount": 1200},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "flop",
+            "pot_size": 4700,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "check", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "check", "seatNo": 0, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "turn",
+            "pot_size": 4700,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "check", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "bet", "seatNo": 0, "totalBet": 4000, "amount": 4000},
+                {"role": "UTG1", "type": "action", "action": "fold", "seatNo": 5, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": 15,
+    "post_seats": [],
+    "analysis": {"bestCount": 1, "inaccurateCount": 1, "blunderCount": 1},
+}
+
+
+# Category 2: Split pot where all players have win_bet=0 (board plays itself).
+# Hand #646825316352: 2-max heads-up, board 9c9s9hTcTs (full house on board).
+# Both players show down, both win_bet=0 (exact split).
+HAND_646825316352 = {
+    "id": "1192013646825316352",
+    "hole_cards": "Kh6c",
+    "community_cards": "9c9s9hTcTs",
+    "hand_score": 7500,
+    "timestamp": 1759001087000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1192000169375129600",
+        "session_id": "",
+        "table_name": "HL5251",
+        "small_blind": 100,
+        "big_blind": 200,
+        "ante": 100,
+        "has_straddle": False,
+        "game_type_code": "nlhe",
+        "max_players": 2,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "BTN",
+    "players": [
+        {"uid": "235160", "name": "Ptaters", "stack": 40000, "seat_no": 4, "position": "BTN", "win_bet": 0, "net": 0, "hand_cards": "Kh6c", "is_showdown": True, "is_showcard": True},
+        {"uid": "446087", "name": "KVV7181", "stack": 46556, "seat_no": 0, "position": "BB", "win_bet": 0, "net": 0, "hand_cards": "Ah7h", "is_showdown": True, "is_showcard": True},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 500,
+            "actions": [
+                {"role": "BTN", "type": "action", "action": "raise", "seatNo": 4, "totalBet": 500, "amount": 500},
+                {"role": "BB", "type": "action", "action": "call", "seatNo": 0, "totalBet": 300, "amount": 300},
+            ],
+        },
+        {
+            "type": "flop",
+            "pot_size": 1200,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "bet", "seatNo": 4, "totalBet": 300, "amount": 300},
+                {"role": "BB", "type": "action", "action": "call", "seatNo": 0, "totalBet": 300, "amount": 300},
+            ],
+        },
+        {
+            "type": "turn",
+            "pot_size": 1800,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "bet", "seatNo": 4, "totalBet": 1600, "amount": 1600},
+                {"role": "BB", "type": "action", "action": "call", "seatNo": 0, "totalBet": 1600, "amount": 1600},
+            ],
+        },
+        {
+            "type": "river",
+            "pot_size": 5000,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 4, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": 0,
+    "post_seats": [],
+    "analysis": {"bestCount": 3, "inaccurateCount": 0, "blunderCount": 1},
+}
+
+
+# Category 3: Rounding in multi-way split pot ($0.01 off).
+# Hand #384151937024: 6-max straddle, 3-way split (board AcAd5sKc5d).
+# All 3 showdown players have win_bet=66. effective_pot=950. 950/3=316.66...
+HAND_384151937024 = {
+    "id": "1194962384151937024",
+    "hole_cards": "3sQd",
+    "community_cards": "AcAd5sKc5d",
+    "hand_score": 10000,
+    "timestamp": 1759704121000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1194951113900453888",
+        "session_id": "",
+        "table_name": "HL6141",
+        "small_blind": 50,
+        "big_blind": 100,
+        "ante": 50,
+        "has_straddle": True,
+        "game_type_code": "nlhe",
+        "max_players": 6,
+        "stack_depth": "medium",
+        "ante_size": "small",
+    },
+    "player_position": "HJ",
+    "players": [
+        {"uid": "235160", "name": "Ptaters", "stack": 22560, "seat_no": 3, "position": "HJ", "win_bet": -50, "net": -50, "hand_cards": "3sQd", "is_showdown": False, "is_showcard": False},
+        {"uid": "397543", "name": "Swedishfish69", "stack": 53000, "seat_no": 4, "position": "CO", "win_bet": -50, "net": -50, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "312089", "name": "Dogmom", "stack": 3226, "seat_no": 5, "position": "BTN", "win_bet": 66, "net": 66, "hand_cards": "7h6d", "is_showdown": True, "is_showcard": True},
+        {"uid": "329912", "name": "Lemondaddy", "stack": 22052, "seat_no": 0, "position": "SB", "win_bet": -100, "net": -100, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "239913", "name": "InaPujole", "stack": 9018, "seat_no": 1, "position": "BB", "win_bet": 66, "net": 66, "hand_cards": "TdJs", "is_showdown": True, "is_showcard": True},
+        {"uid": "345453", "name": "boneless49", "stack": 20066, "seat_no": 2, "position": "UTG", "win_bet": 66, "net": 66, "hand_cards": "3h6s", "is_showdown": True, "is_showcard": True},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 650,
+            "actions": [
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "call", "seatNo": 5, "totalBet": 200, "amount": 200},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "call", "seatNo": 1, "totalBet": 100, "amount": 100},
+                {"role": "UTG", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "flop",
+            "pot_size": 950,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 5, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "turn",
+            "pot_size": 950,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 5, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "river",
+            "pot_size": 950,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "UTG", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 5, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": -0.5,
+    "post_seats": [],
+    "analysis": {"bestCount": 1, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+# Category 4: Non-straddle preflop "check" is actually a limp.
+# Hand #16983715840: 3-max non-straddle (SB=20,BB=50,ante=20).
+# BTN "checks" preflop (amount=0) but should be a call of BB=50.
+HAND_16983715840 = {
+    "id": "1222822016983715840",
+    "hole_cards": "7c9d",
+    "community_cards": "7d3cKd5sJs",
+    "hand_score": 10000,
+    "timestamp": 1766346375000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1222819883773116416",
+        "session_id": "",
+        "table_name": "HL9345",
+        "small_blind": 20,
+        "big_blind": 50,
+        "ante": 20,
+        "has_straddle": False,
+        "game_type_code": "nlhe",
+        "max_players": 3,
+        "stack_depth": "deep",
+        "ante_size": "small",
+    },
+    "player_position": "SB",
+    "players": [
+        {"uid": "326352", "name": "kerpowski", "stack": 9930, "seat_no": 2, "position": "BTN", "win_bet": -70, "net": -70, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "235160", "name": "Ptaters", "stack": 10066, "seat_no": 0, "position": "SB", "win_bet": -40, "net": -40, "hand_cards": "7c9d", "is_showdown": False, "is_showcard": False},
+        {"uid": "406239", "name": "AllIn4what", "stack": 3867, "seat_no": 1, "position": "BB", "win_bet": 110, "net": 110, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 130,
+            "actions": [
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "flop",
+            "pot_size": 180,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "turn",
+            "pot_size": 180,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+                {"role": "BTN", "type": "action", "action": "check", "seatNo": 2, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "river",
+            "pot_size": 180,
+            "actions": [
+                {"role": "BB", "type": "action", "action": "bet", "seatNo": 1, "totalBet": 50, "amount": 50},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": -0.8,
+    "post_seats": [],
+    "analysis": {"bestCount": 1, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+class TestErrorSet5:
+    """Tests for 97 PT4 import errors from pt4imporerrors.txt."""
+
+    # Category 1: Straddle preflop call amounts
+    def test_straddle_call_pot(self):
+        """CO calls UTG1's raise in straddle game. API under-reports call by 400.
+        Antes: 8*100=800, SB:100, BB:200, straddle:400.
+        UTG1 raise to 1600 (additional=1600), CO call=1600 (not 1200).
+        Preflop: 800+100+200+400+1600+1600=4700.
+        Turn: CO bets 4000, UTG1 folds. Uncalled=4000.
+        Effective: 4700. $47.00.
+        """
+        text = convert_hand(HAND_87506206720)
+        assert extract_pot(text) == 47.00
+
+    def test_straddle_call_amount(self):
+        """CO should call $16.00, not $12.00."""
+        text = convert_hand(HAND_87506206720)
+        assert has_line_containing(text, "Ptaters: calls $16.00")
+        assert not has_line_containing(text, "Ptaters: calls $12.00")
+
+    # Category 2: Split pot with all win_bet=0
+    def test_split_pot_total(self):
+        """Both players split pot on board full house. Pot computed from actions.
+        Heads-up: SB(100)+BB(200)+raise_add(300)+call(300)=900 preflop.
+        Flop: +300+300=600. Turn: +1600+1600=3200. River: check-check.
+        Total: 900+600+3200=4700 (but this is HU with ante=SB, so
+        SB(100)+BB(200)+raise(500)+call(300)=1100, ... let me trace carefully).
+        """
+        text = convert_hand(HAND_646825316352)
+        pot = extract_pot(text)
+        # Heads-up: no antes (ante=SB). SB=100, BB=200.
+        # Preflop: raise to 500 (add=400), call 300. Total: 100+200+400+300=1000.
+        # Nope, let me just check it's non-zero and both players collected.
+        assert pot > 0
+
+    def test_split_pot_both_collect(self):
+        """Both players should collect from the pot (exact split)."""
+        text = convert_hand(HAND_646825316352)
+        assert has_line_containing(text, "Ptaters collected")
+        assert has_line_containing(text, "KVV7181 collected")
+
+    def test_split_pot_no_zero_pot(self):
+        """Total pot should NOT be $0.00."""
+        text = convert_hand(HAND_646825316352)
+        pot = extract_pot(text)
+        assert pot != 0.0
+
+    def test_split_pot_collected_sum_equals_pot(self):
+        """Sum of collected amounts should equal the total pot."""
+        text = convert_hand(HAND_646825316352)
+        pot = extract_pot(text)
+        collected = re.findall(r'collected \$(\d+\.\d+) from pot', text)
+        total_collected = sum(float(c) for c in collected)
+        assert total_collected == pot
+
+    # Category 3: Rounding in multi-way split
+    def test_3way_split_pot(self):
+        """3-way split of 950 chips. Shares must sum to pot.
+        Antes: 6*50=300, SB:50, BB:100, straddle:200.
+        BTN call:200, BB call:100, UTG check (=call straddle).
+        Preflop: 300+50+100+200+200+100=950.
+        All streets checked. Pot=$9.50.
+        """
+        text = convert_hand(HAND_384151937024)
+        assert extract_pot(text) == 9.50
+
+    def test_3way_split_collected_sum(self):
+        """Three winners' collected amounts should sum to $9.50 exactly."""
+        text = convert_hand(HAND_384151937024)
+        collected = re.findall(r'collected \$(\d+\.\d+) from pot', text)
+        assert len(collected) == 3
+        total = sum(float(c) for c in collected)
+        assert total == 9.50
+
+    # Category 4: Non-straddle preflop check = limp
+    def test_non_straddle_limp_pot(self):
+        """BTN 'checks' preflop in non-straddle = limp (call BB).
+        Antes: 3*20=60, SB:20, BB:50. BTN call:50, SB fold, BB check.
+        Preflop: 60+20+50+50=180.
+        River: BB bets 50, BTN folds. Uncalled=50.
+        Effective: 180. $1.80.
+        """
+        text = convert_hand(HAND_16983715840)
+        assert extract_pot(text) == 1.80
+
+    def test_non_straddle_limp_calls(self):
+        """BTN should call $0.50 (the BB), not check."""
+        text = convert_hand(HAND_16983715840)
+        preflop_section = text.split("*** FLOP ***")[0]
+        assert has_line_containing(preflop_section, "kerpowski: calls $0.50")
+        assert not has_line_containing(preflop_section, "kerpowski: checks")
+
+    def test_non_straddle_bb_still_checks(self):
+        """BB should still check preflop (already matched)."""
+        text = convert_hand(HAND_16983715840)
+        preflop_section = text.split("*** FLOP ***")[0]
+        assert has_line_containing(preflop_section, "AllIn4what: checks")

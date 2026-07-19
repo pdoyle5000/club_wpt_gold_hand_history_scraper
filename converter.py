@@ -377,10 +377,11 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
                 lines.append(f"{name}: folds")
 
             elif act == 'check':
-                # In straddle games, preflop "check" from players who haven't
-                # matched the straddle is actually a call (API treats straddle
-                # as a blind, so "checking" means calling the straddle amount).
-                if (street_type == 'preflop' and has_straddle
+                # The API reports preflop limps/straddle-calls as "check".
+                # In straddle games, "checking" means calling the straddle.
+                # In non-straddle games, a preflop "check" from a player who
+                # hasn't matched the BB is actually a limp (call).
+                if (street_type == 'preflop'
                         and street_invested.get(seat, 0) < current_bet):
                     call_amount = current_bet - street_invested.get(seat, 0)
                     avail = max(remaining_stack.get(seat, 0), 0)
@@ -400,6 +401,12 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
 
             elif act == 'call':
                 # amount = additional chips only
+                # FIX: In straddle games, the API under-reports preflop call
+                # amounts for non-blind players when a raise occurred beyond
+                # the straddle.  Compute the correct amount from our own
+                # current_bet tracking instead of trusting the API value.
+                if has_straddle and street_type == 'preflop':
+                    amount = current_bet - street_invested.get(seat, 0)
                 avail = max(remaining_stack.get(seat, 0), 0)
                 if avail <= 0:
                     continue
@@ -495,6 +502,13 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
     showdown_players = [p for p in players if p.get('is_showdown') and p.get('hand_cards')]
     winners = [p for p in players if p.get('win_bet', 0) > 0]
 
+    # FIX: When all showdown players have win_bet=0 (exact split, board plays),
+    # treat them as winners splitting the pot equally.
+    if not winners and showdown_players:
+        winners = list(showdown_players)
+
+    winner_seats = {w['seat_no'] for w in winners}
+
     if showdown_players:
         lines.append("*** SHOW DOWN ***")
         for p in sorted(showdown_players, key=lambda x: x['seat_no']):
@@ -502,7 +516,7 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
             _, hand_desc = evaluate_hand(cards, community)
             if not hand_desc:
                 hand_desc = "a hand"
-            if p.get('win_bet', 0) > 0:
+            if p['seat_no'] in winner_seats:
                 collected = _winner_share(p, winners, effective_pot)
                 lines.append(f"{p['name']}: shows [{format_cards(cards)}] ({hand_desc})")
                 lines.append(f"{p['name']} collected {fmt_amount(collected)} from pot")
@@ -528,14 +542,13 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
         pos = p['position']
         name = p['name']
         cards = parse_cards(p.get('hand_cards', ''))
-        win_bet = p.get('win_bet', 0)
 
         pos_label = {"BTN": "button", "SB": "small blind", "BB": "big blind"}.get(pos, "")
         pos_str = f" ({pos_label})" if pos_label else ""
 
         fold_street = _player_folded_on_street(hand, p['seat_no'])
 
-        if win_bet > 0 and p.get('is_showdown') and cards:
+        if p['seat_no'] in winner_seats and p.get('is_showdown') and cards:
             _, hand_desc = evaluate_hand(cards, community)
             if not hand_desc:
                 hand_desc = "a hand"
@@ -544,7 +557,7 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
                 f"Seat {seat}: {name}{pos_str} showed [{format_cards(cards)}] "
                 f"and won ({fmt_amount(won_amount)}) with {hand_desc}"
             )
-        elif win_bet > 0:
+        elif p['seat_no'] in winner_seats:
             won_amount = _winner_share(p, winners, effective_pot)
             lines.append(f"Seat {seat}: {name}{pos_str} collected ({fmt_amount(won_amount)})")
         elif p.get('is_showdown') and cards:
@@ -567,13 +580,29 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
 
 
 def _winner_share(winner, all_winners, effective_pot):
-    """Calculate a winner's share of the effective pot."""
+    """Calculate a winner's share of the effective pot.
+
+    Uses floor division with remainder chips distributed to the earliest
+    seat(s), ensuring shares always sum to exactly effective_pot.
+    """
     if len(all_winners) == 1:
         return effective_pot
-    total_won = sum(w['win_bet'] for w in all_winners)
+    sorted_winners = sorted(all_winners, key=lambda w: w['seat_no'])
+    n = len(sorted_winners)
+    total_won = sum(w['win_bet'] for w in sorted_winners)
+
     if total_won <= 0:
-        return effective_pot // len(all_winners)
-    return int(round(winner['win_bet'] / total_won * effective_pot))
+        shares = [effective_pot // n] * n
+    else:
+        shares = [effective_pot * w['win_bet'] // total_won for w in sorted_winners]
+
+    # Distribute remainder chips to earliest seat(s)
+    remainder = effective_pot - sum(shares)
+    for i in range(remainder):
+        shares[i] += 1
+
+    idx = next(i for i, w in enumerate(sorted_winners) if w['seat_no'] == winner['seat_no'])
+    return shares[idx]
 
 
 def _fold_description(fold_street: str, hand: dict, seat_no: int,
