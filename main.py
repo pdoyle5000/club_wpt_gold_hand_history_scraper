@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from converter import convert_hand
-from scraper import scrape_all
+from scraper import scrape_all, scrape_update
 
 
 def group_hands_by_date(hands: list[dict]) -> dict[str, list[dict]]:
@@ -64,8 +64,13 @@ def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str = "235160
 
 
 def load_raw_hands(raw_dir: str) -> list[dict]:
-    """Load all hands from raw JSON page files."""
+    """Load all hands from raw JSON page files, deduplicating by hand ID.
+
+    Pages are loaded in order (page 1 first), so after an --update run
+    that overwrites early pages, the newest version of shifted hands is kept.
+    """
     hands = []
+    seen_ids: set[str] = set()
     if not os.path.exists(raw_dir):
         return hands
 
@@ -75,7 +80,11 @@ def load_raw_hands(raw_dir: str) -> list[dict]:
         try:
             with open(filepath, 'r') as f:
                 data = json.load(f)
-            hands.extend(data.get('data', []))
+            for hand in data.get('data', []):
+                hand_id = str(hand.get('id', ''))
+                if hand_id and hand_id not in seen_ids:
+                    seen_ids.add(hand_id)
+                    hands.append(hand)
         except (json.JSONDecodeError, IOError) as e:
             print(f"  Warning: Could not load {filename}: {e}")
     return hands
@@ -118,6 +127,10 @@ def main():
         help="Only convert existing raw JSON, don't scrape"
     )
     parser.add_argument(
+        "--update", action="store_true",
+        help="Incremental scrape: fetch new hands and stop on first duplicate"
+    )
+    parser.add_argument(
         "--hero-uid", default="235160",
         help="Your player UID for 'Dealt to' display (default: 235160)"
     )
@@ -130,6 +143,9 @@ def main():
     if not args.convert_only and not args.token:
         parser.error("--token is required unless --convert-only is used")
 
+    if args.convert_only and args.update:
+        parser.error("--convert-only and --update are mutually exclusive")
+
     if args.convert_only:
         # Load from raw JSON files
         print("Loading hands from raw JSON files...")
@@ -138,8 +154,24 @@ def main():
             print("No raw JSON files found. Run scraper first.")
             sys.exit(1)
         print(f"Loaded {len(all_hands)} hands from raw files")
+    elif args.update:
+        # Incremental scrape: fetch new hands, stop on duplicate
+        print("=" * 60)
+        print("ClubWPT Gold Hand History Scraper (update)")
+        print("=" * 60)
+        asyncio.run(
+            scrape_update(
+                token=args.token,
+                raw_dir=raw_dir,
+                page_size=args.page_size,
+            )
+        )
+        # Load all hands (old + new, deduped) for conversion
+        print("\nLoading all hands from raw JSON files...")
+        all_hands = load_raw_hands(raw_dir)
+        print(f"Loaded {len(all_hands)} unique hands")
     else:
-        # Scrape
+        # Full scrape
         print("=" * 60)
         print("ClubWPT Gold Hand History Scraper")
         print("=" * 60)

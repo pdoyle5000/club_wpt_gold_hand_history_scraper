@@ -147,6 +147,93 @@ async def scrape_all(
     return all_hands
 
 
+def load_existing_hand_ids(raw_dir: str) -> set[str]:
+    """Load all hand IDs from existing raw JSON page files."""
+    ids = set()
+    if not os.path.exists(raw_dir):
+        return ids
+    for filename in sorted(os.listdir(raw_dir)):
+        if not (filename.startswith('page_') and filename.endswith('.json')):
+            continue
+        filepath = os.path.join(raw_dir, filename)
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            for hand in data.get('data', []):
+                hand_id = hand.get('id')
+                if hand_id:
+                    ids.add(str(hand_id))
+        except (json.JSONDecodeError, IOError):
+            continue
+    return ids
+
+
+async def scrape_update(
+    token: str,
+    raw_dir: str,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> list[dict]:
+    """Fetch only new hands, stopping when a duplicate is found.
+
+    Pages are fetched sequentially from page 1 (newest first).
+    Stops as soon as any hand on a page already exists in the
+    previously scraped raw JSON files.
+
+    Returns the list of newly fetched hand dicts.
+    """
+    os.makedirs(raw_dir, exist_ok=True)
+    semaphore = asyncio.Semaphore(1)
+
+    print("Loading existing hand IDs...")
+    known_ids = load_existing_hand_ids(raw_dir)
+    print(f"Found {len(known_ids)} existing hands")
+
+    new_hands = []
+
+    async with httpx.AsyncClient(http2=False) as client:
+        print("Fetching metadata...")
+        first_page = await fetch_metadata(client, token, page_size)
+        meta = first_page['metadata']
+        total_pages = meta['total_pages']
+        total_hands = meta['total']
+        print(f"Total hands on server: {total_hands} ({total_pages} pages)")
+
+        page = 1
+        while page <= total_pages:
+            if page == 1:
+                result = first_page
+            else:
+                result = await fetch_page(client, token, page, page_size, semaphore)
+
+            if result is None:
+                print(f"  Page {page} failed, stopping.")
+                break
+
+            hands = result.get('data', [])
+            _save_raw_page(raw_dir, page, result)
+
+            # Check for overlap
+            found_duplicate = False
+            for hand in hands:
+                hand_id = str(hand.get('id', ''))
+                if hand_id in known_ids:
+                    found_duplicate = True
+                else:
+                    new_hands.append(hand)
+
+            print(f"  Page {page}/{total_pages} — {len(hands)} hands"
+                  f" ({len(new_hands)} new so far)")
+
+            if found_duplicate:
+                print(f"Found existing hand on page {page}, stopping.")
+                break
+
+            page += 1
+
+    print(f"\nUpdate complete. {len(new_hands)} new hands fetched across {page} page(s).")
+    return new_hands
+
+
 def _save_raw_page(raw_dir: str, page: int, data: dict):
     """Save a raw JSON page to disk."""
     path = os.path.join(raw_dir, f"page_{page:05d}.json")
