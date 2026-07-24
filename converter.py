@@ -159,6 +159,53 @@ def fmt_amount(chips: int | float) -> str:
     return f"${val:.2f}"
 
 
+# ClubWPT Gold rake structure for NLHE ring games.
+# Source: https://support.clubwptgold.com/portal/en/kb/articles/rake
+# Keyed by (small_blind, big_blind) in chips (cents, matching the API's
+# table.small_blind / table.big_blind). Each entry is
+# (rake_fraction, (cap_2p, cap_3_4p, cap_5plus)) with caps in chips.
+RAKE_TABLE = {
+    (1, 2):       (0.05, (10, 20, 40)),
+    (5, 10):      (0.05, (30, 30, 60)),
+    (10, 20):     (0.05, (60, 60, 120)),
+    (20, 50):     (0.05, (100, 100, 200)),
+    (50, 100):    (0.05, (200, 200, 400)),
+    (100, 200):   (0.04, (300, 400, 600)),
+    (200, 400):   (0.04, (300, 400, 700)),
+    (500, 1000):  (0.04, (300, 600, 1000)),
+    (2500, 5000): (0.04, (300, 600, 1500)),
+}
+
+
+def compute_rake(sb: int, bb: int, num_players: int, pot: int,
+                 flop_dealt: bool) -> int:
+    """Compute the rake (in chips) for a hand per the ClubWPT Gold structure.
+
+    Rake is a percentage of the contested pot, capped by stake and by the
+    number of players dealt into the hand. Two standard poker conventions
+    not spelled out on the rake page are applied here:
+
+    - "No flop, no rake": hands that end before a flop is dealt are not raked.
+    - The rake is rounded to the nearest chip (cent), half rounding up.
+
+    Returns 0 for stakes that are not in the published rake table.
+    """
+    if not flop_dealt or pot <= 0:
+        return 0
+    entry = RAKE_TABLE.get((sb, bb))
+    if entry is None:
+        return 0
+    pct, caps = entry
+    if num_players <= 2:
+        cap = caps[0]
+    elif num_players <= 4:
+        cap = caps[1]
+    else:
+        cap = caps[2]
+    rake = int(pot * pct + 0.5)  # round half up to nearest chip
+    return min(rake, cap)
+
+
 def _find_player_by_position(players: list[dict], position: str) -> dict | None:
     for p in players:
         if p['position'] == position:
@@ -498,6 +545,12 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
             lines.append(f"Uncalled bet ({fmt_amount(uncalled_amount)}) returned to {seat_map[uncalled_seat]['name']}")
     effective_pot = total_pot - uncalled_amount
 
+    # Rake: a percentage of the contested pot, capped by stake and player
+    # count (see RAKE_TABLE). The "Total pot" line reports the gross pot while
+    # winners collect the pot net of rake, matching PokerStars' format.
+    rake = compute_rake(sb, bb, len(players), effective_pot, bool(flop_cards))
+    raked_pot = effective_pot - rake
+
     # Showdown
     showdown_players = [p for p in players if p.get('is_showdown') and p.get('hand_cards')]
     winners = [p for p in players if p.get('win_bet', 0) > 0]
@@ -517,21 +570,21 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
             if not hand_desc:
                 hand_desc = "a hand"
             if p['seat_no'] in winner_seats:
-                collected = _winner_share(p, winners, effective_pot)
+                collected = _winner_share(p, winners, raked_pot)
                 lines.append(f"{p['name']}: shows [{format_cards(cards)}] ({hand_desc})")
                 lines.append(f"{p['name']} collected {fmt_amount(collected)} from pot")
             else:
                 lines.append(f"{p['name']}: shows [{format_cards(cards)}] ({hand_desc})")
     else:
         for w in winners:
-            collected = _winner_share(w, winners, effective_pot)
+            collected = _winner_share(w, winners, raked_pot)
             lines.append(f"{w['name']} collected {fmt_amount(collected)} from pot")
             if w.get('hand_cards') and not w.get('is_showdown'):
                 lines.append(f"{w['name']}: doesn't show hand")
 
     # Summary
     lines.append("*** SUMMARY ***")
-    lines.append(f"Total pot {fmt_amount(effective_pot)} | Rake $0.00")
+    lines.append(f"Total pot {fmt_amount(effective_pot)} | Rake {fmt_amount(rake)}")
 
     if community:
         lines.append(f"Board [{format_cards(community)}]")
@@ -552,13 +605,13 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
             _, hand_desc = evaluate_hand(cards, community)
             if not hand_desc:
                 hand_desc = "a hand"
-            won_amount = _winner_share(p, winners, effective_pot)
+            won_amount = _winner_share(p, winners, raked_pot)
             lines.append(
                 f"Seat {seat}: {name}{pos_str} showed [{format_cards(cards)}] "
                 f"and won ({fmt_amount(won_amount)}) with {hand_desc}"
             )
         elif p['seat_no'] in winner_seats:
-            won_amount = _winner_share(p, winners, effective_pot)
+            won_amount = _winner_share(p, winners, raked_pot)
             lines.append(f"Seat {seat}: {name}{pos_str} collected ({fmt_amount(won_amount)})")
         elif p.get('is_showdown') and cards:
             _, hand_desc = evaluate_hand(cards, community)
