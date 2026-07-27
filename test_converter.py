@@ -4,7 +4,7 @@ import re
 import pytest
 from converter import (
     parse_cards, format_cards, evaluate_hand, fmt_amount,
-    convert_hand,
+    convert_hand, compute_rake,
 )
 
 
@@ -85,6 +85,13 @@ def extract_pot(text: str) -> float:
     """Extract the 'Total pot $X.XX' value from a converted hand."""
     m = re.search(r"Total pot \$(\d+\.\d+)", text)
     assert m, f"Could not find 'Total pot' in output:\n{text[-300:]}"
+    return float(m.group(1))
+
+
+def extract_rake(text: str) -> float:
+    """Extract the 'Rake $X.XX' value from a converted hand's summary."""
+    m = re.search(r"Rake \$(\d+\.\d+)", text)
+    assert m, f"Could not find 'Rake' in output:\n{text[-300:]}"
     return float(m.group(1))
 
 
@@ -1693,12 +1700,13 @@ class TestErrorSet5:
         assert pot != 0.0
 
     def test_split_pot_collected_sum_equals_pot(self):
-        """Sum of collected amounts should equal the total pot."""
+        """Sum of collected amounts should equal the total pot, net of rake."""
         text = convert_hand(HAND_646825316352)
         pot = extract_pot(text)
+        rake = extract_rake(text)
         collected = re.findall(r'collected \$(\d+\.\d+) from pot', text)
         total_collected = sum(float(c) for c in collected)
-        assert total_collected == pot
+        assert round(total_collected + rake, 2) == pot
 
     # Category 3: Rounding in multi-way split
     def test_3way_split_pot(self):
@@ -1712,12 +1720,13 @@ class TestErrorSet5:
         assert extract_pot(text) == 9.50
 
     def test_3way_split_collected_sum(self):
-        """Three winners' collected amounts should sum to $9.50 exactly."""
+        """Three winners' collected amounts should sum to $9.50 net of rake."""
         text = convert_hand(HAND_384151937024)
+        rake = extract_rake(text)
         collected = re.findall(r'collected \$(\d+\.\d+) from pot', text)
         assert len(collected) == 3
         total = sum(float(c) for c in collected)
-        assert total == 9.50
+        assert round(total + rake, 2) == 9.50
 
     # Category 4: Non-straddle preflop check = limp
     def test_non_straddle_limp_pot(self):
@@ -1742,3 +1751,65 @@ class TestErrorSet5:
         text = convert_hand(HAND_16983715840)
         preflop_section = text.split("*** FLOP ***")[0]
         assert has_line_containing(preflop_section, "AllIn4what: checks")
+
+
+# ---------------------------------------------------------------------------
+# Rake computation (https://support.clubwptgold.com/portal/en/kb/articles/rake)
+# ---------------------------------------------------------------------------
+
+class TestComputeRake:
+    def test_micro_percentage(self):
+        """0.01/0.02 is raked 5%: 5% of $2.00 pot = $0.10 (200 -> 10)."""
+        assert compute_rake(1, 2, 6, 200, flop_dealt=True) == 10
+
+    def test_micro_cap_5plus(self):
+        """0.01/0.02 5+ handed cap is $0.40; 5% of $20 pot = $1.00 -> capped."""
+        assert compute_rake(1, 2, 6, 2000, flop_dealt=True) == 40
+
+    def test_micro_cap_heads_up(self):
+        """0.01/0.02 heads-up cap is $0.10."""
+        assert compute_rake(1, 2, 2, 2000, flop_dealt=True) == 10
+
+    def test_micro_cap_3_4_handed(self):
+        """0.01/0.02 3-4 handed cap is $0.20."""
+        assert compute_rake(1, 2, 4, 2000, flop_dealt=True) == 20
+
+    def test_mid_percentage(self):
+        """1/2 ($1/$2) is raked 4%: 4% of $50 pot = $2.00 (5000 -> 200)."""
+        assert compute_rake(100, 200, 6, 5000, flop_dealt=True) == 200
+
+    def test_mid_cap(self):
+        """1/2 5+ handed cap is $6.00; 4% of $200 = $8.00 -> capped at 600."""
+        assert compute_rake(100, 200, 6, 20000, flop_dealt=True) == 600
+
+    def test_no_flop_no_rake(self):
+        """Hands that end before the flop are not raked."""
+        assert compute_rake(1, 2, 6, 2000, flop_dealt=False) == 0
+
+    def test_unknown_stake_no_rake(self):
+        """Stakes not in the published table are not raked."""
+        assert compute_rake(3, 6, 6, 2000, flop_dealt=True) == 0
+
+    def test_empty_pot_no_rake(self):
+        assert compute_rake(1, 2, 6, 0, flop_dealt=True) == 0
+
+    def test_rounding_half_up(self):
+        """5% of $0.30 (30 chips) = 1.5 -> rounds up to 2 chips."""
+        assert compute_rake(1, 2, 6, 30, flop_dealt=True) == 2
+
+
+class TestRakeInOutput:
+    def test_summary_reports_rake(self):
+        """A raked hand's summary shows the non-zero rake."""
+        text = convert_hand(HAND_384151937024)
+        assert has_line_containing(text, "| Rake ")
+        assert not has_line_containing(text, "| Rake $0.00")
+
+    def test_collected_is_net_of_rake(self):
+        """Sum collected + rake equals the gross Total pot."""
+        text = convert_hand(HAND_384151937024)
+        pot = extract_pot(text)
+        rake = extract_rake(text)
+        collected = re.findall(r'collected \$(\d+\.\d+) from pot', text)
+        total = sum(float(c) for c in collected)
+        assert round(total + rake, 2) == pot
