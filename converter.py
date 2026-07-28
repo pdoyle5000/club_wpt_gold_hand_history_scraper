@@ -448,11 +448,10 @@ def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
 
             elif act == 'call':
                 # amount = additional chips only
-                # FIX: In straddle games, the API under-reports preflop call
-                # amounts for non-blind players when a raise occurred beyond
-                # the straddle.  Compute the correct amount from our own
-                # current_bet tracking instead of trusting the API value.
-                if has_straddle and street_type == 'preflop':
+                # FIX: The API under-reports preflop call amounts for non-blind
+                # players (by the big blind amount). Compute the correct amount
+                # from our own current_bet tracking instead of trusting the API.
+                if street_type == 'preflop':
                     amount = current_bet - street_invested.get(seat, 0)
                 avail = max(remaining_stack.get(seat, 0), 0)
                 if avail <= 0:
