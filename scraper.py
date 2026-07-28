@@ -75,14 +75,16 @@ async def scrape_all(
     end_page: int | None = None,
     max_concurrent: int = MAX_CONCURRENT,
     overwrite: bool = False,
+    refresh_recent: bool = False,
 ) -> list[dict]:
     """Scrape all pages and save raw JSON. Returns list of all hand dicts.
 
-    Pages that may contain hands within the rolling FRESH_WINDOW_MS window
-    (newest activity) are always re-fetched from the API, ignoring any
-    on-disk cache, since new hands constantly shift older hands to later
-    pages. Older, stable pages still use the on-disk cache to speed up
-    repeated runs.
+    If refresh_recent is True, pages that may contain hands within the
+    rolling FRESH_WINDOW_MS window (newest activity) are always re-fetched
+    from the API, ignoring any on-disk cache, since new hands constantly
+    shift older hands to later pages. Older, stable pages still use the
+    on-disk cache to speed up repeated runs. If refresh_recent is False
+    (the default), the on-disk cache is trusted for every page as usual.
 
     If overwrite is True, the on-disk cache is ignored entirely and every
     page in range is re-fetched (the sequential fresh-window walk is
@@ -115,7 +117,9 @@ async def scrape_all(
             all_hands.extend(first_page.get('data', []))
             print(f"  Page 1/{actual_end} - {len(first_page.get('data', []))} hands")
             next_page = 2
-            fresh_walk_active = not overwrite and not _page_is_stale(first_page, cutoff_ts_ms)
+            fresh_walk_active = (
+                refresh_recent and not overwrite and not _page_is_stale(first_page, cutoff_ts_ms)
+            )
 
         # Phase A: walk forward sequentially, always bypassing the cache,
         # for as long as pages may still contain hands in the fresh window.

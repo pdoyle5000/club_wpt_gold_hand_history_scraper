@@ -35,9 +35,10 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 
 ## Scraper Caching
 
-- The API returns hands newest-first, so every new hand played shifts all older hands to a later page. `scrape_all` (the default full-pipeline mode) therefore never trusts the on-disk `raw/page_*.json` cache for pages that might still contain hands from the last `FRESH_WINDOW_MS` (3 days, rolling from the current time) — it walks those pages sequentially, always re-fetching and overwriting the cache. Once a page is entirely older than that window, every later page is guaranteed to be older too, so the scraper falls back to the normal cache-aware, concurrently-batched fetch for the stable historical tail.
+- By default, `scrape_all` (the full-pipeline mode) trusts the on-disk `raw/page_*.json` cache for every page (except page 1, which is always fetched fresh for metadata).
+- `--refresh-recent`: The API returns hands newest-first, so every new hand played shifts all older hands to a later page — a cached page near the front can go stale as soon as new hands are played. With this flag, `scrape_all` never trusts the on-disk cache for pages that might still contain hands from the last `FRESH_WINDOW_MS` (3 days, rolling from the current time) — it walks those pages sequentially, always re-fetching and overwriting the cache. Once a page is entirely older than that window, every later page is guaranteed to be older too, so the scraper falls back to the normal cache-aware, concurrently-batched fetch for the stable historical tail. Mutually exclusive with `--update` and `--convert-only`.
 - `--overwrite` bypasses the cache entirely and re-downloads every page in range, regardless of freshness. Mutually exclusive with `--update` and `--convert-only`.
-- `--update` (`scrape_update`) is unaffected — it already always walks fresh from page 1 and stops on the first duplicate hand ID.
+- `--update` (`scrape_update`) is unaffected by either flag — it already always walks fresh from page 1 and stops on the first duplicate hand ID.
 
 ## Running Tests
 
@@ -62,6 +63,9 @@ uv run python main.py --token "YOUR_JWT_TOKEN" --output-dir /path/to/output
 
 # Force a full re-download, ignoring the cache entirely
 uv run python main.py --token "YOUR_JWT_TOKEN" --overwrite
+
+# Re-fetch pages that might hold hands from the last 3 days, trust cache for the rest
+uv run python main.py --token "YOUR_JWT_TOKEN" --refresh-recent
 ```
 
 ## Output Structure
