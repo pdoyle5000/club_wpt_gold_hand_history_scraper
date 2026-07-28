@@ -10,6 +10,7 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 - `converter.py` — Converts Quintace JSON hand objects to PokerStars `.txt` format
 - `main.py` — CLI entry point with `--scrape-only`, `--convert-only`, and full pipeline modes
 - `test_converter.py` — pytest suite (59 tests) covering all conversion logic and known edge cases
+- `test_scraper.py` — pytest suite covering scraper page-freshness helpers
 
 ## Key API Details
 
@@ -32,10 +33,17 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 9. **Board-plays-itself splits**: When all showdown players have `win_bet=0` (exact split where the board plays itself), they are treated as winners splitting the pot equally.
 10. **Rake**: The analysis API returns rake-free, zero-sum data (`sum(net) == 0` across players), so rake is computed and re-applied from the [published ClubWPT Gold rake structure](https://support.clubwptgold.com/portal/en/kb/articles/rake) in `compute_rake()`. Rake is a percentage of the contested (post-uncalled-bet) pot, capped by stake and by the number of players dealt in (2P / 3–4P / 5P+ tiers). The `Total pot` line reports the gross pot; winners collect the pot net of rake. Two conventions not stated on the rake page are applied: **no flop, no rake** (hands ending preflop are unraked) and **round-half-up to the nearest cent**. Stakes absent from the table are unraked. `RAKE_TABLE` is keyed by `(small_blind, big_blind)` in chips (cents).
 
+## Scraper Caching
+
+- By default, `scrape_all` (the full-pipeline mode) trusts the on-disk `raw/page_*.json` cache for every page (except page 1, which is always fetched fresh for metadata).
+- `--refresh-recent`: The API returns hands newest-first, so every new hand played shifts all older hands to a later page — a cached page near the front can go stale as soon as new hands are played. With this flag, `scrape_all` never trusts the on-disk cache for pages that might still contain hands from the last `FRESH_WINDOW_MS` (3 days, rolling from the current time) — it walks those pages sequentially, always re-fetching and overwriting the cache. Once a page is entirely older than that window, every later page is guaranteed to be older too, so the scraper falls back to the normal cache-aware, concurrently-batched fetch for the stable historical tail. Mutually exclusive with `--update` and `--convert-only`.
+- `--overwrite` bypasses the cache entirely and re-downloads every page in range, regardless of freshness. Mutually exclusive with `--update` and `--convert-only`.
+- `--update` (`scrape_update`) is unaffected by either flag — it already always walks fresh from page 1 and stops on the first duplicate hand ID.
+
 ## Running Tests
 
 ```bash
-uv run pytest test_converter.py -v
+uv run pytest -v
 ```
 
 ## Running the Scraper
@@ -52,6 +60,12 @@ uv run python main.py --convert-only
 
 # Custom output directory
 uv run python main.py --token "YOUR_JWT_TOKEN" --output-dir /path/to/output
+
+# Force a full re-download, ignoring the cache entirely
+uv run python main.py --token "YOUR_JWT_TOKEN" --overwrite
+
+# Re-fetch pages that might hold hands from the last 3 days, trust cache for the rest
+uv run python main.py --token "YOUR_JWT_TOKEN" --refresh-recent
 ```
 
 ## Output Structure

@@ -131,6 +131,15 @@ def main():
         help="Incremental scrape: fetch new hands and stop on first duplicate"
     )
     parser.add_argument(
+        "--overwrite", action="store_true",
+        help="Ignore the on-disk cache entirely and re-download every page"
+    )
+    parser.add_argument(
+        "--refresh-recent", action="store_true",
+        help="Bypass the on-disk cache for pages that may contain hands from "
+             "the last 3 days, since new hands can shift them (default: trust the cache)"
+    )
+    parser.add_argument(
         "--hero-uid", default="235160",
         help="Your player UID for 'Dealt to' display (default: 235160)"
     )
@@ -145,6 +154,18 @@ def main():
 
     if args.convert_only and args.update:
         parser.error("--convert-only and --update are mutually exclusive")
+
+    if args.overwrite and args.update:
+        parser.error("--overwrite and --update are mutually exclusive")
+
+    if args.overwrite and args.convert_only:
+        parser.error("--overwrite and --convert-only are mutually exclusive")
+
+    if args.refresh_recent and args.update:
+        parser.error("--refresh-recent and --update are mutually exclusive")
+
+    if args.refresh_recent and args.convert_only:
+        parser.error("--refresh-recent and --convert-only are mutually exclusive")
 
     if args.convert_only:
         # Load from raw JSON files
@@ -183,6 +204,8 @@ def main():
                 start_page=args.start_page,
                 end_page=args.end_page,
                 max_concurrent=args.max_concurrent,
+                overwrite=args.overwrite,
+                refresh_recent=args.refresh_recent,
             )
         )
 
