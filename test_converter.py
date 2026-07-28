@@ -1813,3 +1813,191 @@ class TestRakeInOutput:
         collected = re.findall(r'collected \$(\d+\.\d+) from pot', text)
         total = sum(float(c) for c in collected)
         assert round(total + rake, 2) == pot
+
+
+
+# ---------------------------------------------------------------------------
+# Error Set 6: Non-straddle preflop call amounts under-reported by BB
+# ---------------------------------------------------------------------------
+
+# Simplified non-straddle hand. API reports MP/CO calls as 6 chips but the
+# current bet after the UTG1 raise is 8 chips. Before the fix PT4 rejected
+# the hand because the action lines under-counted the pot.
+HAND_NON_STRADDLE_CALL_UNDER_REPORTED = {
+    "id": "1263452466569007104",
+    "hole_cards": "5d4d",
+    "community_cards": "7c6s4cQhAh",
+    "hand_score": 2500,
+    "timestamp": 1776033429000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1",
+        "session_id": "",
+        "table_name": "HL1",
+        "small_blind": 1,
+        "big_blind": 2,
+        "ante": 0,
+        "has_straddle": False,
+        "game_type_code": "nlhe",
+        "max_players": 8,
+        "stack_depth": "deep",
+        "ante_size": "noante",
+    },
+    "player_position": "UTG1",
+    "players": [
+        {"uid": "1", "name": "WallyJ", "stack": 211, "seat_no": 5, "position": "UTG", "win_bet": 0, "net": 0, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "2", "name": "Slimothy", "stack": 776, "seat_no": 6, "position": "UTG1", "win_bet": 26, "net": 26, "hand_cards": "5d4d", "is_showdown": False, "is_showcard": False},
+        {"uid": "3", "name": "Oscar", "stack": 92, "seat_no": 7, "position": "MP", "win_bet": -8, "net": -8, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "4", "name": "Cam", "stack": 392, "seat_no": 0, "position": "HJ", "win_bet": 0, "net": 0, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "5", "name": "Nug", "stack": 85, "seat_no": 1, "position": "CO", "win_bet": -15, "net": -15, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "6", "name": "moor", "stack": 397, "seat_no": 2, "position": "BTN", "win_bet": 0, "net": 0, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "7", "name": "AltSlash", "stack": 345, "seat_no": 3, "position": "SB", "win_bet": -1, "net": -1, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "8", "name": "Degen", "stack": 334, "seat_no": 4, "position": "BB", "win_bet": -2, "net": -2, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 3,
+            "actions": [
+                {"role": "UTG", "type": "action", "action": "fold", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "UTG1", "type": "action", "action": "raise", "seatNo": 6, "totalBet": 8, "amount": 8},
+                {"role": "MP", "type": "action", "action": "call", "seatNo": 7, "totalBet": 6, "amount": 6},
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "call", "seatNo": 1, "totalBet": 6, "amount": 6},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "fold", "seatNo": 4, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "flop",
+            "pot_size": 27,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "bet", "seatNo": 6, "totalBet": 7, "amount": 7},
+                {"role": "MP", "type": "action", "action": "fold", "seatNo": 7, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "call", "seatNo": 1, "totalBet": 7, "amount": 7},
+            ],
+        },
+        {
+            "type": "turn",
+            "pot_size": 41,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "check", "seatNo": 6, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "check", "seatNo": 1, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "river",
+            "pot_size": 41,
+            "actions": [
+                {"role": "UTG1", "type": "action", "action": "bet", "seatNo": 6, "totalBet": 31, "amount": 31},
+                {"role": "CO", "type": "action", "action": "fold", "seatNo": 1, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 1},
+    "win_amount_bb": 13,
+    "post_seats": [],
+    "analysis": {"bestCount": 1, "inaccurateCount": 0, "blunderCount": 3},
+}
+
+
+# Simplified ante hand. API reports CO call as 30 chips but the current bet
+# after the MP raise is 40 chips. Before the fix PT4 rejected the hand.
+HAND_ANTE_CALL_UNDER_REPORTED = {
+    "id": "1269597004138770432",
+    "hole_cards": "5hKc",
+    "community_cards": "As4dAd",
+    "hand_score": 10000,
+    "timestamp": 1777498401000,
+    "table": {
+        "currency": "diamond",
+        "table_id": "1",
+        "session_id": "",
+        "table_name": "HL1",
+        "small_blind": 5,
+        "big_blind": 10,
+        "ante": 5,
+        "has_straddle": False,
+        "game_type_code": "nlhe",
+        "max_players": 8,
+        "stack_depth": "deep",
+        "ante_size": "small",
+    },
+    "player_position": "SB",
+    "players": [
+        {"uid": "1", "name": "ScarJo", "stack": 255, "seat_no": 2, "position": "UTG", "win_bet": -5, "net": -5, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "2", "name": "MamaK", "stack": 1720, "seat_no": 3, "position": "UTG1", "win_bet": -5, "net": -5, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "3", "name": "RiverD", "stack": 885, "seat_no": 4, "position": "MP", "win_bet": 90, "net": 90, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "4", "name": "skimp", "stack": 2624, "seat_no": 5, "position": "HJ", "win_bet": -5, "net": -5, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "5", "name": "MudOgre", "stack": 1955, "seat_no": 6, "position": "CO", "win_bet": -45, "net": -45, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "6", "name": "Elim", "stack": 709, "seat_no": 7, "position": "BTN", "win_bet": -5, "net": -5, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+        {"uid": "7", "name": "Slimothy", "stack": 5309, "seat_no": 0, "position": "SB", "win_bet": -10, "net": -10, "hand_cards": "5hKc", "is_showdown": False, "is_showcard": False},
+        {"uid": "8", "name": "Chancluz", "stack": 2022, "seat_no": 1, "position": "BB", "win_bet": -15, "net": -15, "hand_cards": "", "is_showdown": False, "is_showcard": False},
+    ],
+    "hand_history": [
+        {
+            "type": "preflop",
+            "pot_size": 55,
+            "actions": [
+                {"role": "UTG", "type": "action", "action": "fold", "seatNo": 2, "totalBet": 0, "amount": 0},
+                {"role": "UTG1", "type": "action", "action": "fold", "seatNo": 3, "totalBet": 0, "amount": 0},
+                {"role": "MP", "type": "action", "action": "raise", "seatNo": 4, "totalBet": 40, "amount": 40},
+                {"role": "HJ", "type": "action", "action": "fold", "seatNo": 5, "totalBet": 0, "amount": 0},
+                {"role": "CO", "type": "action", "action": "call", "seatNo": 6, "totalBet": 30, "amount": 30},
+                {"role": "BTN", "type": "action", "action": "fold", "seatNo": 7, "totalBet": 0, "amount": 0},
+                {"role": "SB", "type": "action", "action": "fold", "seatNo": 0, "totalBet": 0, "amount": 0},
+                {"role": "BB", "type": "action", "action": "fold", "seatNo": 1, "totalBet": 0, "amount": 0},
+            ],
+        },
+        {
+            "type": "flop",
+            "pot_size": 135,
+            "actions": [
+                {"role": "MP", "type": "action", "action": "bet", "seatNo": 4, "totalBet": 40, "amount": 40},
+                {"role": "CO", "type": "action", "action": "fold", "seatNo": 6, "totalBet": 0, "amount": 0},
+            ],
+        },
+    ],
+    "attributes": {"analysis_mode": 0},
+    "win_amount_bb": -1,
+    "post_seats": [],
+    "analysis": {"bestCount": 1, "inaccurateCount": 0, "blunderCount": 0},
+}
+
+
+class TestErrorSet6NonStraddleCallAmounts:
+    """Tests for non-straddle preflop call amounts under-reported by the BB."""
+
+    def test_non_straddle_call_amount_corrected(self):
+        """MP and CO should call $0.08 (the current bet), not the API's $0.06."""
+        text = convert_hand(HAND_NON_STRADDLE_CALL_UNDER_REPORTED, hero_uid="2")
+        preflop = text.split("*** FLOP ***")[0]
+        assert has_line_containing(preflop, "Oscar: calls $0.08")
+        assert has_line_containing(preflop, "Nug: calls $0.08")
+        assert not has_line_containing(preflop, "Oscar: calls $0.06")
+        assert not has_line_containing(preflop, "Nug: calls $0.06")
+
+    def test_non_straddle_call_pot_matches_api(self):
+        """Action-based pot should match the API flop pot_size ($0.27 -> $0.41 effective)."""
+        text = convert_hand(HAND_NON_STRADDLE_CALL_UNDER_REPORTED, hero_uid="2")
+        # Preflop: 1+2+8+8+8 = 27; flop adds 7+7; river bet 31 is uncalled.
+        # Effective pot = 27 + 14 = 41; rake = 5% of 41 = 2.05 -> 2.
+        assert extract_pot(text) == 0.41
+        assert extract_rake(text) == 0.02
+
+    def test_ante_call_amount_corrected(self):
+        """CO should call $0.40 (the current bet), not the API's $0.30."""
+        text = convert_hand(HAND_ANTE_CALL_UNDER_REPORTED, hero_uid="7")
+        preflop = text.split("*** FLOP ***")[0]
+        assert has_line_containing(preflop, "MudOgre: calls $0.40")
+        assert not has_line_containing(preflop, "MudOgre: calls $0.30")
+
+    def test_ante_call_pot_matches_api(self):
+        """Action-based pot should match the API flop pot_size ($1.35 effective)."""
+        text = convert_hand(HAND_ANTE_CALL_UNDER_REPORTED, hero_uid="7")
+        # Preflop: 8*5 ante + 5 SB + 10 BB + 40 raise + 40 call = 135.
+        # Flop bet 40 is uncalled and returned, so effective pot stays 135.
+        # rake = 5% of 135 = 6.75 -> 7.
+        assert extract_pot(text) == 1.35
+        assert extract_rake(text) == 0.07
