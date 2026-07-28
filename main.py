@@ -31,7 +31,7 @@ def group_hands_by_date(hands: list[dict]) -> dict[str, list[dict]]:
     return dict(by_date)
 
 
-def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str = "235160") -> int:
+def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str | None = None) -> int:
     """Convert hands and write to date-organized files. Returns count of converted hands."""
     os.makedirs(output_dir, exist_ok=True)
     by_date = group_hands_by_date(hands)
@@ -54,7 +54,7 @@ def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str = "235160
                 print(f"  Error converting hand {hand.get('id', '?')}: {e}")
 
         if converted_texts:
-            with open(filepath, 'w') as f:
+            with open(filepath, 'w', encoding='utf-8') as f:
                 f.write('\n\n\n'.join(converted_texts) + '\n')
             print(f"  {filename}: {len(converted_texts)} hands")
 
@@ -140,8 +140,9 @@ def main():
              "the last 3 days, since new hands can shift them (default: trust the cache)"
     )
     parser.add_argument(
-        "--hero-uid", default="235160",
-        help="Your player UID for 'Dealt to' display (default: 235160)"
+        "--hero-uid", default=None,
+        help="Override your player UID for 'Dealt to' display "
+             "(default: auto-detected per-hand from table.session_id)"
     )
 
     args = parser.parse_args()
@@ -196,7 +197,7 @@ def main():
         print("=" * 60)
         print("ClubWPT Gold Hand History Scraper")
         print("=" * 60)
-        all_hands = asyncio.run(
+        asyncio.run(
             scrape_all(
                 token=args.token,
                 raw_dir=raw_dir,
@@ -212,6 +213,14 @@ def main():
     if args.scrape_only:
         print(f"\nScrape complete. Raw JSON saved to {raw_dir}")
         return
+
+    if not args.convert_only and not args.update:
+        # Reload from disk to dedupe by hand ID: page boundaries can shift
+        # between a freshly-fetched page and a stale cached page, producing
+        # the same hand twice in scrape_all's raw in-memory result.
+        print("\nLoading all hands from raw JSON files...")
+        all_hands = load_raw_hands(raw_dir)
+        print(f"Loaded {len(all_hands)} unique hands")
 
     # Convert
     print("\n" + "=" * 60)
