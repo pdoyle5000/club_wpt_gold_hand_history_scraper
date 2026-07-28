@@ -646,6 +646,37 @@ class TestSampleHands:
 
 
 # ---------------------------------------------------------------------------
+# Tests for hero UID auto-detection from table.session_id
+# ---------------------------------------------------------------------------
+
+class TestHeroUidDetection:
+    def test_auto_detects_hero_from_session_id(self):
+        """When session_id embeds a uid other than DEFAULT_HERO_UID, that
+        player's cards should be dealt, not the default's."""
+        import copy
+        hand = copy.deepcopy(SAMPLE_HAND_1)
+        hand["table"]["session_id"] = f"{hand['table']['table_id']}|3|235160|20260728"
+        text = convert_hand(hand)
+        assert "Dealt to Ptaters [5c 5s]" in text
+
+    def test_falls_back_to_default_when_session_id_empty(self):
+        """Test fixtures (and any real data missing session_id) fall back to
+        DEFAULT_HERO_UID rather than dealing no one's cards."""
+        assert SAMPLE_HAND_1["table"]["session_id"] == ""
+        text = convert_hand(SAMPLE_HAND_1)
+        assert "Dealt to Ptaters [5c 5s]" in text
+
+    def test_explicit_hero_uid_overrides_auto_detection(self):
+        """An explicit hero_uid argument wins even if session_id names someone else."""
+        import copy
+        hand = copy.deepcopy(SAMPLE_HAND_1)
+        hand["table"]["session_id"] = f"{hand['table']['table_id']}|3|235160|20260728"
+        text = convert_hand(hand, hero_uid="302271")
+        assert "Dealt to Shmoosie [5h 3h]" in text
+        assert "Dealt to Ptaters" not in text
+
+
+# ---------------------------------------------------------------------------
 # Tests for Bug A: Preflop check as implicit straddle call
 # ---------------------------------------------------------------------------
 

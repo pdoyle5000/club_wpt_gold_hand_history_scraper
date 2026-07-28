@@ -7,6 +7,12 @@ from itertools import combinations
 
 DEFAULT_HERO_UID = "235160"
 
+
+def _detect_hero_uid(hand: dict) -> str | None:
+    """The hero's UID is embedded in table.session_id as '{table_id}|{seat}|{uid}|{date}'."""
+    parts = hand.get('table', {}).get('session_id', '').split('|')
+    return parts[2] if len(parts) >= 3 and parts[2] else None
+
 # Card rank values for hand evaluation
 RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
                '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
@@ -232,8 +238,14 @@ def _player_folded_on_street(hand: dict, seat_no: int) -> str | None:
     return None
 
 
-def convert_hand(hand: dict, hero_uid: str = DEFAULT_HERO_UID) -> str:
-    """Convert a single hand JSON object to PokerStars hand history format."""
+def convert_hand(hand: dict, hero_uid: str | None = None) -> str:
+    """Convert a single hand JSON object to PokerStars hand history format.
+
+    hero_uid: explicit override; if None, auto-detected from table.session_id
+    (falls back to DEFAULT_HERO_UID when session_id isn't present, e.g. in tests).
+    """
+    if hero_uid is None:
+        hero_uid = _detect_hero_uid(hand) or DEFAULT_HERO_UID
     lines = []
     table = hand['table']
     players = hand['players']
@@ -682,7 +694,7 @@ def _fold_description(fold_street: str, hand: dict, seat_no: int,
     return "folded"
 
 
-def convert_hands_to_file(hands: list[dict], hero_uid: str = DEFAULT_HERO_UID) -> str:
+def convert_hands_to_file(hands: list[dict], hero_uid: str | None = None) -> str:
     """Convert a list of hand objects to a single PokerStars HH file string."""
     converted = []
     for hand in hands:
