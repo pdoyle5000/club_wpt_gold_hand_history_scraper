@@ -11,6 +11,7 @@ BASE_URL = "https://analysis-b2b.quintace.ai/api/players/hands"
 DEFAULT_PAGE_SIZE = 100
 MAX_CONCURRENT = 10
 DELAY_BETWEEN_BATCHES = 0.1  # seconds
+FRESH_WINDOW_MS = 3 * 24 * 60 * 60 * 1000  # rolling window that always bypasses the on-disk cache
 
 
 async def fetch_page(
@@ -54,6 +55,18 @@ async def fetch_metadata(client: httpx.AsyncClient, token: str, page_size: int) 
     return result
 
 
+def _page_is_stale(page_data: dict, cutoff_ts_ms: float) -> bool:
+    """True if every hand on this page is older than cutoff_ts_ms.
+
+    Pages are returned newest-hand-first, so once a page is entirely
+    stale, every later page is guaranteed to be stale too.
+    """
+    hands = page_data.get('data', [])
+    if not hands:
+        return True
+    return all(hand.get('timestamp', 0) < cutoff_ts_ms for hand in hands)
+
+
 async def scrape_all(
     token: str,
     raw_dir: str,
@@ -61,11 +74,25 @@ async def scrape_all(
     start_page: int = 1,
     end_page: int | None = None,
     max_concurrent: int = MAX_CONCURRENT,
+    overwrite: bool = False,
 ) -> list[dict]:
-    """Scrape all pages and save raw JSON. Returns list of all hand dicts."""
+    """Scrape all pages and save raw JSON. Returns list of all hand dicts.
+
+    Pages that may contain hands within the rolling FRESH_WINDOW_MS window
+    (newest activity) are always re-fetched from the API, ignoring any
+    on-disk cache, since new hands constantly shift older hands to later
+    pages. Older, stable pages still use the on-disk cache to speed up
+    repeated runs.
+
+    If overwrite is True, the on-disk cache is ignored entirely and every
+    page in range is re-fetched (the sequential fresh-window walk is
+    skipped since the batched fetch below already covers everything).
+    """
     os.makedirs(raw_dir, exist_ok=True)
     semaphore = asyncio.Semaphore(max_concurrent)
     all_hands = []
+    start_time = time.time()
+    cutoff_ts_ms = start_time * 1000 - FRESH_WINDOW_MS
 
     async with httpx.AsyncClient(http2=False) as client:
         # Get metadata
@@ -81,38 +108,62 @@ async def scrape_all(
         print(f"Scraping pages {start_page} to {actual_end}")
 
         # Save and collect first page hands if in range
+        next_page = start_page
+        fresh_walk_active = False
         if start_page == 1:
             _save_raw_page(raw_dir, 1, first_page)
             all_hands.extend(first_page.get('data', []))
             print(f"  Page 1/{actual_end} - {len(first_page.get('data', []))} hands")
+            next_page = 2
+            fresh_walk_active = not overwrite and not _page_is_stale(first_page, cutoff_ts_ms)
 
-        # Determine which pages still need fetching
+        # Phase A: walk forward sequentially, always bypassing the cache,
+        # for as long as pages may still contain hands in the fresh window.
+        fresh_pages_fetched = 0
+        while fresh_walk_active and next_page <= actual_end:
+            result = await fetch_page(client, token, next_page, page_size, semaphore)
+            if result is None:
+                print(f"  Page {next_page} failed during fresh-window walk, stopping walk.")
+                break
+            _save_raw_page(raw_dir, next_page, result)
+            all_hands.extend(result.get('data', []))
+            fresh_pages_fetched += 1
+            print(f"  Page {next_page}/{actual_end} - {len(result.get('data', []))} hands (fresh, cache bypassed)")
+            fresh_walk_active = not _page_is_stale(result, cutoff_ts_ms)
+            next_page += 1
+
+        if fresh_pages_fetched:
+            print(f"Fresh-window walk complete: {fresh_pages_fetched} page(s) re-fetched (cache bypassed)")
+
+        # Phase B: for remaining (stable/older) pages, use the on-disk
+        # cache when available, else queue for batched concurrent fetch.
         pages_to_fetch = []
-        first_done = 1 if start_page == 1 else 0
-        for page in range(max(start_page, 1 + first_done), actual_end + 1):
+        cached_count = 0
+        for page in range(next_page, actual_end + 1):
             raw_path = os.path.join(raw_dir, f"page_{page:05d}.json")
-            if os.path.exists(raw_path):
+            if not overwrite and os.path.exists(raw_path):
                 # Resume: load from disk
                 try:
                     with open(raw_path, 'r') as f:
                         cached = json.load(f)
                     all_hands.extend(cached.get('data', []))
+                    cached_count += 1
                     continue
                 except (json.JSONDecodeError, IOError):
                     pass  # Re-fetch corrupted files
             pages_to_fetch.append(page)
 
         if not pages_to_fetch:
-            print(f"All pages already downloaded. {len(all_hands)} hands loaded from cache.")
+            if cached_count:
+                print(f"Remaining pages already downloaded. {cached_count} pages loaded from cache.")
+            print(f"\nDone! Scraped {len(all_hands)} hands in {time.time() - start_time:.1f}s")
             return all_hands
 
-        cached_count = actual_end - start_page + 1 - len(pages_to_fetch) - first_done
         if cached_count > 0:
             print(f"Resuming: {cached_count} pages loaded from cache, {len(pages_to_fetch)} remaining")
 
         # Fetch remaining pages in batches
         batch_size = max_concurrent * 2
-        start_time = time.time()
 
         for batch_start in range(0, len(pages_to_fetch), batch_size):
             batch = pages_to_fetch[batch_start:batch_start + batch_size]
