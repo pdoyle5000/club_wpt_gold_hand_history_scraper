@@ -61,6 +61,30 @@ Re-convert previously scraped raw JSON (no token needed):
 uv run python main.py --convert-only
 ```
 
+### Incremental Update
+
+Fetch only new hands since the last scrape (stops on the first duplicate):
+
+```bash
+uv run python main.py --token "eyJ..." --update
+```
+
+### Refresh Recent Pages
+
+Re-fetch pages that may contain hands from the last 3 days (handles page shifting from new hands), then use the cache for older pages:
+
+```bash
+uv run python main.py --token "eyJ..." --refresh-recent
+```
+
+### Full Re-download
+
+Ignore the on-disk cache entirely and re-download every page:
+
+```bash
+uv run python main.py --token "eyJ..." --overwrite
+```
+
 ### Options
 
 | Flag | Default | Description |
@@ -71,19 +95,12 @@ uv run python main.py --convert-only
 | `--start-page` | `1` | First page to scrape |
 | `--end-page` | all | Last page to scrape |
 | `--max-concurrent` | `10` | Max concurrent API requests |
-| `--hero-uid` | `235160` | Your player UID (for "Dealt to" lines) |
+| `--hero-uid` | auto-detected | Your player UID (for "Dealt to" lines); auto-detected from `table.session_id` if omitted |
 | `--scrape-only` | | Only scrape, don't convert |
 | `--convert-only` | | Only convert existing raw data |
-
-### Finding Your Player UID
-
-Your UID appears in the raw JSON hand data. After scraping at least one page, search the raw JSON for your screen name:
-
-```bash
-grep -r '"name": "YourScreenName"' output/raw/ | head -1
-```
-
-The `uid` field next to your name is the value to pass to `--hero-uid`.
+| `--update` | | Incremental scrape: fetch new hands, stop on first duplicate |
+| `--refresh-recent` | | Bypass cache for pages within the last 3 days |
+| `--overwrite` | | Re-download every page, ignoring cache |
 
 ## Output
 
@@ -98,5 +115,5 @@ The `pokerstars/` files can be directly imported into PokerTracker 4 or Holdem M
 ## Running Tests
 
 ```bash
-uv run pytest test_converter.py -v
+uv run pytest -v
 ```
