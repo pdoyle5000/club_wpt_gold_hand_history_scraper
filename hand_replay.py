@@ -245,7 +245,8 @@ def winner_share(winner: dict, all_winners: list[dict], effective_pot: int) -> i
     return shares[idx]
 
 
-def _infer_undeclared_posts(r: HandReplay, post_amount: int) -> list[tuple[int, int]]:
+def _infer_undeclared_posts(r: HandReplay, true_post_amount: int,
+                            charge_amount: int) -> list[tuple[int, int]]:
     """Find players who posted to enter without appearing in `post_seats`.
 
     The API's `post_seats` list is incomplete: in ~2% of hands a player in a
@@ -255,8 +256,11 @@ def _infer_undeclared_posts(r: HandReplay, post_amount: int) -> list[tuple[int, 
     replay charged them is money they were forced to put up. Only a shortfall
     of exactly one post is treated as such; anything else is left alone rather
     than invented away.
+
+    The post is recognised at its true size but charged at `charge_amount`,
+    which is all the PokerStars format can express (see `replay_hand`).
     """
-    if post_amount <= 0:
+    if true_post_amount <= 0:
         return []
     charged = r.contributions()
     accounted = {r.forced.sb_seat, r.forced.bb_seat, r.forced.straddle_seat}
@@ -266,8 +270,8 @@ def _infer_undeclared_posts(r: HandReplay, post_amount: int) -> list[tuple[int, 
         seat = p['seat_no']
         if seat in accounted or seat in r.winner_seats or p.get('win_bet', 0) >= 0:
             continue
-        if -p['win_bet'] - charged[seat] == post_amount:
-            extra.append((seat, post_amount))
+        if -p['win_bet'] - charged[seat] == true_post_amount:
+            extra.append((seat, charge_amount))
     return extra
 
 
@@ -279,13 +283,11 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
     hero_uid: explicit override; if None, auto-detected from table.session_id
     (falls back to DEFAULT_HERO_UID when session_id isn't present, e.g. in tests).
 
-    pokerstars_compat: reproduce the forced-bet compromises the PokerStars
-    text renderer depends on. The API's own `hand_history[0].pot_size` shows
-    the true forced money is always `ante * players + SB + BB + straddle`,
-    with the button posting the SB whenever no seat has the SB position, and
-    a post-to-enter matching the straddle in straddle games. The PokerStars
-    renderer cannot express two of those (see CLAUDE.md quirks 6 and 11), so
-    it asks for the legacy model instead. New output formats should not.
+    pokerstars_compat: charge a post-to-enter as a big blind rather than at
+    its real size, which is all PT4's text parser will accept (quirk 6). It is
+    the only compromise the PokerStars format still needs; everything else
+    here is the faithful reconstruction, checked against the API's own
+    `hand_history[0].pot_size` (always `ante * players + SB + BB + straddle`).
     """
     if hero_uid is None:
         hero_uid = _detect_hero_uid(hand) or DEFAULT_HERO_UID
@@ -315,15 +317,10 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
 
     # When only two players are dealt in, the API marks the small blind's
     # position as "BTN" and no seat has position "SB" — the button posts it.
-    # This happens on any table size, but the legacy PokerStars model only
-    # recognises it at 2-max, where it also assumes (wrongly) that the ante
-    # is the small blind and so charges no ante.
+    # This happens on any table size, not just 2-max tables.
     is_heads_up = sb_player is None and btn_player is not None
-    if pokerstars_compat:
-        is_heads_up = is_heads_up and max_players == 2
     if is_heads_up:
         sb_player = btn_player
-    ante_charged = 0 if (pokerstars_compat and is_heads_up) else ante
 
     hero = next((p for p in players if p['uid'] == hero_uid), None)
 
@@ -336,7 +333,10 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
     # The PokerStars renderer must understate it as a big blind: PT4 reads
     # "posts big blind $X" where X > BB as having a dead component, which
     # breaks its street investment tracking and causes pot / stack errors.
-    post_amount = bb if pokerstars_compat else (straddle_amount if has_straddle else bb)
+    # It still has to recognise a post at its true size, though, or it can't
+    # tell that an unannounced one happened at all.
+    true_post_amount = straddle_amount if has_straddle else bb
+    post_amount = bb if pokerstars_compat else true_post_amount
     post_seat_set = set(hand.get('post_seats', []))
     post_seats = [
         (ps, post_amount)
@@ -348,8 +348,8 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
         post_seats = sorted(post_seats + list(_extra_posts))
 
     forced = ForcedBets(
-        ante=ante_charged,
-        ante_seats=([] if ante_charged <= 0
+        ante=ante,
+        ante_seats=([] if ante <= 0
                     else [p['seat_no'] for p in sorted(players, key=lambda x: x['seat_no'])]),
         sb_seat=sb_player['seat_no'] if sb_player else None,
         sb_amount=sb if sb_player else 0,
@@ -368,7 +368,7 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
 
     # FIX: Remaining stacks use STARTING stacks (not ending)
     remaining_stack = {
-        p['seat_no']: p['starting_stack'] - ante_charged
+        p['seat_no']: p['starting_stack'] - ante
         for p in players
     }
     if sb_player:
@@ -379,7 +379,7 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
         remaining_stack[ps] -= amt
 
     # FIX: Track total_pot from forced bets + actions (not from win_bet)
-    total_pot = ante_charged * len(players)
+    total_pot = ante * len(players)
     if sb_player:
         total_pot += sb
     if bb_player:
@@ -597,9 +597,10 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
 
     # A post the API failed to announce changes what its owner still owes, so
     # the hand has to be replayed once more with it in place.
-    if not pokerstars_compat and _extra_posts is None:
-        extra = _infer_undeclared_posts(result, post_amount)
+    if _extra_posts is None:
+        extra = _infer_undeclared_posts(result, true_post_amount, post_amount)
         if extra:
-            return replay_hand(hand, hero_uid=hero_uid, _extra_posts=extra)
+            return replay_hand(hand, hero_uid=hero_uid,
+                               pokerstars_compat=pokerstars_compat, _extra_posts=extra)
 
     return result

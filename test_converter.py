@@ -755,10 +755,18 @@ class TestBugBAllinForLess:
 
     def test_hand_141179609088_pot(self):
         """MP raises to 14000, BTN allins 9764 (for less). Uncalled = 4236.
-        Total from actions: 25264. Effective: 25264-4236=21028. $210.28.
+        Total from actions: 25264, plus a post the API never announced (CO's
+        win_bet of -500 is ante 100 + a post), charged at the big blind: 25464.
+        Effective: 25464-4236=21228. $212.28.
         """
         text = convert_hand(HAND_141179609088)
-        assert extract_pot(text) == 210.28
+        assert extract_pot(text) == 212.28
+
+    def test_hand_141179609088_recovers_the_undeclared_post(self):
+        """The post is recognised from CO's net but written as a big blind,
+        which is the most PT4's text parser will accept (see quirk 6)."""
+        text = convert_hand(HAND_141179609088)
+        assert has_line_containing(text, "Qbanguy5450: posts big blind $2.00")
 
     def test_hand_141179609088_uncalled(self):
         """Uncalled bet should be $42.36 returned to Ptaters (MP)."""
@@ -1113,28 +1121,43 @@ HAND_177876987904 = {
 
 class TestErrorSet3:
     def test_headsup_pot_checked_down(self):
-        """Heads-up: no antes posted, BTN=SB. SB(20)+BB(50)+call(30)=100. $1.00."""
+        """Heads-up: BTN=SB and both players ante.
+        antes(2*20)+SB(20)+BB(50)+call(30)=140. $1.40."""
         text = convert_hand(HAND_43959074816)
-        assert extract_pot(text) == 1.00
+        assert extract_pot(text) == 1.40
 
-    def test_headsup_no_ante_lines(self):
-        """Heads-up hands should not have 'posts the ante' lines."""
+    def test_headsup_ante_lines(self):
+        """Antes are paid heads-up too. The ante is not the small blind — here
+        it is 20 against a small blind of 20, but the two differ at other
+        stakes, and BTN's win_bet of -70 (ante 20 + SB 20 + call 30) only adds
+        up with the ante charged."""
         text = convert_hand(HAND_43959074816)
-        assert not has_line_containing(text, "posts the ante")
+        assert sum(1 for line in text.split("\n")
+                   if "posts the ante $0.20" in line) == 2
 
     def test_headsup_has_sb_line(self):
         """BTN should post small blind in heads-up."""
         text = convert_hand(HAND_43959074816)
         assert has_line_containing(text, "Bvamerica97: posts small blind $0.20")
 
+    def test_button_posts_sb_when_two_players_sit_at_a_bigger_table(self):
+        """The API drops the SB position whenever only two players are dealt
+        in, not only at 2-max tables. The button posts it either way."""
+        import copy
+        hand = copy.deepcopy(HAND_43959074816)
+        hand["table"]["max_players"] = 8
+        text = convert_hand(hand)
+        assert has_line_containing(text, "Bvamerica97: posts small blind $0.20")
+        assert extract_pot(text) == 1.40
+
     def test_headsup_pot_with_uncalled(self):
         """Heads-up: BTN bet on turn, BB folds. Uncalled = turn bet.
-        SB(20)+BB(50)+call(30)+raise_add(150)+call(150)=400 preflop.
-        Flop: bet(220)+raise(540)+call(320)=1480.
-        Turn: bet(1140), fold. Uncalled=1140. Effective=1480. $14.80.
+        antes(2*20)+SB(20)+BB(50)+call(30)+raise_add(150)+call(150)=440 preflop.
+        Flop: bet(220)+raise(540)+call(320)=1520.
+        Turn: bet(1140), fold. Uncalled=1140. Effective=1520. $15.20.
         """
         text = convert_hand(HAND_735670153216)
-        assert extract_pot(text) == 14.80
+        assert extract_pot(text) == 15.20
 
     def test_allin_for_less_via_call(self):
         """BB allins 13097, UTG calls but capped at 8010 (all-in for less).

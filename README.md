@@ -99,13 +99,14 @@ uv run python main.py --token "eyJ..." --format both   # write both formats
 | Antes | `posts the ante` lines | `Post Ante` actions |
 | Straddle | faked as a preflop raise from UTG | `Straddle` action |
 | Post-to-enter | understated as a big blind, because PT4 reads a larger post as partly dead | `Post Extra Blind` for the real amount |
-| Heads-up antes | dropped | charged |
-| Small blind with only 2 players dealt in | dropped unless the table is 2-max | posted by the button |
 | Amounts won | split across winners in proportion to their net | each winner's exact take, so side pots stay correct |
 
-The two formats are independent — the PokerStars output is unchanged by this flag. The differences above only apply to `ohh`, because the PokerStars renderer has to stay within what PT4's text parser accepts.
+Both formats are built from the same reconstruction of the hand, so they agree on antes, blinds, and which players were charged a post. The remaining differences are the ones the PokerStars text format cannot express.
 
-Accuracy against the API's own figures, over a 61,726-hand corpus: every player's net in the OHH output reconciles with the API except for 6 hands whose split-pot odd chip lands on a different seat (1–2 cents each).
+Accuracy against the API's own figures, over a 61,726-hand corpus:
+
+- **`ohh`** — every player's net reconciles except 6 hands whose split-pot odd chip lands on a different seat (1–2 cents each).
+- **`pokerstars`** — the same, except in the 1,595 hands where someone posted to enter: PT4 forces the post to be written as a big blind, so each poster's contribution is one big blind light.
 
 ### Options
 
