@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""ClubWPT Gold Hand History Scraper & PokerStars Converter.
+"""ClubWPT Gold Hand History Scraper & Converter.
 
-Scrapes hand analysis data from the Quintace API and converts to
-PokerStars hand history format compatible with PokerTracker/HM.
+Scrapes hand analysis data from the Quintace API and converts it to either
+PokerStars hand history text or Open Hand History (OHH) JSON, both of which
+import into PokerTracker 4 / Holdem Manager 3.
 """
 
 import argparse
@@ -14,7 +15,15 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from converter import convert_hand
+from ohh_converter import convert_hand_to_ohh_json
 from scraper import scrape_all, scrape_update
+
+# name -> (output subdirectory, file extension, per-hand renderer, separator)
+FORMATS = {
+    "pokerstars": ("pokerstars", ".txt", convert_hand, "\n\n\n"),
+    # The OHH storage format is a sequence of JSON objects, one blank line apart.
+    "ohh": ("ohh", ".ohh", convert_hand_to_ohh_json, "\n\n"),
+}
 
 
 def group_hands_by_date(hands: list[dict]) -> dict[str, list[dict]]:
@@ -31,8 +40,10 @@ def group_hands_by_date(hands: list[dict]) -> dict[str, list[dict]]:
     return dict(by_date)
 
 
-def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str | None = None) -> int:
+def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str | None = None,
+                     fmt: str = "pokerstars") -> int:
     """Convert hands and write to date-organized files. Returns count of converted hands."""
+    _subdir, extension, render, separator = FORMATS[fmt]
     os.makedirs(output_dir, exist_ok=True)
     by_date = group_hands_by_date(hands)
     total_converted = 0
@@ -40,14 +51,13 @@ def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str | None = 
 
     for date_key in sorted(by_date.keys(), reverse=True):
         date_hands = by_date[date_key]
-        filename = f"HH_{date_key}.txt"
+        filename = f"HH_{date_key}{extension}"
         filepath = os.path.join(output_dir, filename)
 
         converted_texts = []
         for hand in date_hands:
             try:
-                text = convert_hand(hand, hero_uid=hero_uid)
-                converted_texts.append(text)
+                converted_texts.append(render(hand, hero_uid=hero_uid))
                 total_converted += 1
             except Exception as e:
                 errors += 1
@@ -55,7 +65,7 @@ def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str | None = 
 
         if converted_texts:
             with open(filepath, 'w', encoding='utf-8') as f:
-                f.write('\n\n\n'.join(converted_texts) + '\n')
+                f.write(separator.join(converted_texts) + '\n')
             print(f"  {filename}: {len(converted_texts)} hands")
 
     if errors:
@@ -140,6 +150,11 @@ def main():
              "the last 3 days, since new hands can shift them (default: trust the cache)"
     )
     parser.add_argument(
+        "--format", choices=["pokerstars", "ohh", "both"], default="pokerstars",
+        help="Output format: 'pokerstars' text (default), 'ohh' (Open Hand History "
+             "JSON, which models antes and straddles natively), or 'both'"
+    )
+    parser.add_argument(
         "--hero-uid", default=None,
         help="Override your player UID for 'Dealt to' display "
              "(default: auto-detected per-hand from table.session_id)"
@@ -148,7 +163,7 @@ def main():
     args = parser.parse_args()
 
     raw_dir = os.path.join(args.output_dir, "raw")
-    ps_dir = os.path.join(args.output_dir, "pokerstars")
+    formats = ["pokerstars", "ohh"] if args.format == "both" else [args.format]
 
     if not args.convert_only and not args.token:
         parser.error("--token is required unless --convert-only is used")
@@ -223,11 +238,14 @@ def main():
         print(f"Loaded {len(all_hands)} unique hands")
 
     # Convert
-    print("\n" + "=" * 60)
-    print("Converting to PokerStars format...")
-    print("=" * 60)
-    converted = write_hand_files(all_hands, ps_dir, hero_uid=args.hero_uid)
-    print(f"\nDone! {converted} hands written to {ps_dir}")
+    for fmt in formats:
+        subdir = FORMATS[fmt][0]
+        out_dir = os.path.join(args.output_dir, subdir)
+        print("\n" + "=" * 60)
+        print(f"Converting to {fmt} format...")
+        print("=" * 60)
+        converted = write_hand_files(all_hands, out_dir, hero_uid=args.hero_uid, fmt=fmt)
+        print(f"\nDone! {converted} hands written to {out_dir}")
 
 
 if __name__ == "__main__":
