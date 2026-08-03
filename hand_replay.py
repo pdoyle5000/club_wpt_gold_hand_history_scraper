@@ -258,7 +258,7 @@ def _infer_undeclared_posts(r: HandReplay, true_post_amount: int,
     than invented away.
 
     The post is recognised at its true size but charged at `charge_amount`,
-    which is all the PokerStars format can express (see `replay_hand`).
+    which is all PT4 will accept (see `replay_hand`).
     """
     if true_post_amount <= 0:
         return []
@@ -276,18 +276,21 @@ def _infer_undeclared_posts(r: HandReplay, true_post_amount: int,
 
 
 def replay_hand(hand: dict, hero_uid: str | None = None,
-                pokerstars_compat: bool = False,
+                post_as_big_blind: bool = False,
                 _extra_posts: list[tuple[int, int]] | None = None) -> HandReplay:
     """Reconstruct a hand from the raw API JSON.
 
     hero_uid: explicit override; if None, auto-detected from table.session_id
     (falls back to DEFAULT_HERO_UID when session_id isn't present, e.g. in tests).
 
-    pokerstars_compat: charge a post-to-enter as a big blind rather than at
-    its real size, which is all PT4's text parser will accept (quirk 6). It is
-    the only compromise the PokerStars format still needs; everything else
-    here is the faithful reconstruction, checked against the API's own
-    `hand_history[0].pot_size` (always `ante * players + SB + BB + straddle`).
+    post_as_big_blind: charge a post-to-enter as a big blind rather than at its
+    real size. PT4 reads any post larger than the big blind as part live and
+    part dead, so it disagrees with this reconstruction about how much of the
+    poster's money was matched — and therefore about the pot (quirk 6). Both
+    renderers need this, so both pass the flag; it is the only compromise
+    either of them still makes. Everything else here is the faithful
+    reconstruction, checked against the API's own `hand_history[0].pot_size`
+    (always `ante * players + SB + BB + straddle`).
     """
     if hero_uid is None:
         hero_uid = _detect_hero_uid(hand) or DEFAULT_HERO_UID
@@ -330,13 +333,13 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
     # A post-to-enter matches the current opening bet, so in a straddle game
     # it is the straddle, not the big blind (confirmed against `win_bet` for
     # every player in the corpus who posted and then folded).
-    # The PokerStars renderer must understate it as a big blind: PT4 reads
-    # "posts big blind $X" where X > BB as having a dead component, which
-    # breaks its street investment tracking and causes pot / stack errors.
-    # It still has to recognise a post at its true size, though, or it can't
-    # tell that an unannounced one happened at all.
+    # Both renderers must understate it as a big blind: PT4 reads a post
+    # larger than the big blind as having a dead component, which breaks its
+    # street investment tracking and causes pot / stack errors. It still has
+    # to be recognised here at its true size, though, or an unannounced post
+    # can't be spotted at all.
     true_post_amount = straddle_amount if has_straddle else bb
-    post_amount = bb if pokerstars_compat else true_post_amount
+    post_amount = bb if post_as_big_blind else true_post_amount
     post_seat_set = set(hand.get('post_seats', []))
     post_seats = [
         (ps, post_amount)
@@ -601,6 +604,6 @@ def replay_hand(hand: dict, hero_uid: str | None = None,
         extra = _infer_undeclared_posts(result, true_post_amount, post_amount)
         if extra:
             return replay_hand(hand, hero_uid=hero_uid,
-                               pokerstars_compat=pokerstars_compat, _extra_posts=extra)
+                               post_as_big_blind=post_as_big_blind, _extra_posts=extra)
 
     return result

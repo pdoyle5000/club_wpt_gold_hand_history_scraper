@@ -286,7 +286,7 @@ class TestPots:
     def test_pot_equals_contributions_less_the_uncalled_bet(self):
         for hand in (SAMPLE_HAND_1, SAMPLE_HAND_2, HAND_10000302080):
             doc = ohh(hand)
-            r = replay_hand(copy.deepcopy(hand))
+            r = replay_hand(copy.deepcopy(hand), post_as_big_blind=True)
             assert (sum(contributions(doc).values()) - r.uncalled_amount
                     == chips(doc['pots'][0]['amount']))
 
@@ -295,7 +295,7 @@ class TestPots:
         less that player's share of the rake we re-apply."""
         for hand in (SAMPLE_HAND_1, SAMPLE_HAND_2, HAND_10000302080):
             doc = ohh(hand)
-            r = replay_hand(copy.deepcopy(hand))
+            r = replay_hand(copy.deepcopy(hand), post_as_big_blind=True)
             totals = contributions(doc)
             wins = {w['player_id']: chips(w['win_amount']) for w in doc['pots'][0]['player_wins']}
             rakes = {w['player_id']: chips(w['contributed_rake'])
@@ -346,14 +346,17 @@ class TestForcedBetModel:
         sb = actions_of(doc, 'Preflop', 'Post SB')
         assert [a['player_id'] for a in sb] == [player_named(doc, 'Ptaters')['id']]
 
-    def test_post_to_enter_matches_the_straddle(self):
-        """A post-to-enter matches the opening bet, so in a straddle game it is
-        the straddle. The PokerStars renderer has to understate it as a BB."""
+    def test_post_to_enter_is_understated_as_a_big_blind(self):
+        """A post-to-enter really matches the opening bet, so in a straddle
+        game it is the straddle (1.00 here) — but PT4 reads any post above the
+        big blind as part live and part dead, and then disagrees with us about
+        the pot ("Invalid pot size" on import). Charging it as a big blind is
+        what both formats have to do."""
         hand = copy.deepcopy(SAMPLE_HAND_1)
         hand['post_seats'] = [0]  # Krabman1234, position MP
         doc = ohh(hand)
         posts = actions_of(doc, 'Preflop', 'Post Extra Blind')
-        assert [a['amount'] for a in posts] == [1.00]  # straddle, not the 0.50 BB
+        assert [a['amount'] for a in posts] == [0.50]
 
     def test_post_to_enter_is_a_big_blind_without_a_straddle(self):
         hand = copy.deepcopy(SAMPLE_HAND_1)
@@ -362,6 +365,17 @@ class TestForcedBetModel:
         doc = ohh(hand)
         posts = actions_of(doc, 'Preflop', 'Post Extra Blind')
         assert [a['amount'] for a in posts] == [0.50]
+
+    def test_no_post_ever_exceeds_the_big_blind(self):
+        """The one thing PT4 will not import. Every "Invalid pot size" error it
+        reported was a hand whose post was bigger than the big blind."""
+        for hand in (SAMPLE_HAND_1, SAMPLE_HAND_2, HAND_10000302080):
+            copied = copy.deepcopy(hand)
+            copied['post_seats'] = [p['seat_no'] for p in copied['players']]
+            doc = ohh(copied)
+            posts = actions_of(doc, 'Preflop', 'Post Extra Blind')
+            assert posts, 'expected the seeded posts to be charged'
+            assert all(a['amount'] <= doc['big_blind_amount'] for a in posts)
 
 
 class TestUndeclaredPosts:
@@ -378,16 +392,17 @@ class TestUndeclaredPosts:
         return hand
 
     def test_hidden_post_is_recovered(self):
+        """Spotted by its true (straddle) size, charged as a big blind."""
         doc = ohh(self._hand_with_hidden_post())
         posts = actions_of(doc, 'Preflop', 'Post Extra Blind')
         assert [(a['player_id'], a['amount'])
-                for a in posts] == [(player_named(doc, 'Krabman1234')['id'], 1.00)]
+                for a in posts] == [(player_named(doc, 'Krabman1234')['id'], 0.50)]
 
     def test_hidden_post_reconciles_the_players_net(self):
         hand = self._hand_with_hidden_post()
         doc = ohh(hand)
         pid = player_named(doc, 'Krabman1234')['id']
-        assert contributions(doc)[pid] == 120
+        assert contributions(doc)[pid] == 70  # ante 20 + post charged as the BB
 
     def test_unexplained_shortfall_is_left_alone(self):
         """Only a shortfall of exactly one post is treated as a post."""

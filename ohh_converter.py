@@ -3,8 +3,10 @@
 OHH is the open JSON hand-history standard used by PokerTracker 4 and Holdem
 Manager 3 (https://hh-specs.handhistory.org). Unlike the PokerStars text
 format it models antes and straddles natively, so ClubWPT Gold hands convert
-without the synthetic-raise and post-to-enter workarounds that the PokerStars
-renderer needs (see CLAUDE.md quirks 1, 2 and 6).
+without the synthetic-raise workaround that the PokerStars renderer needs
+(see CLAUDE.md quirks 1 and 2). A post-to-enter still has to be understated
+as a big blind, though — PT4 mis-reads a larger one in either format
+(quirk 6).
 
 The hand itself is reconstructed by `hand_replay.replay_hand`; this module is
 only responsible for rendering that reconstruction as OHH JSON.
@@ -77,7 +79,7 @@ def convert_hand_to_ohh(hand: dict, hero_uid: str | None = None) -> dict:
 
     hero_uid: explicit override; if None, auto-detected from table.session_id.
     """
-    r = replay_hand(hand, hero_uid=hero_uid)
+    r = replay_hand(hand, hero_uid=hero_uid, post_as_big_blind=True)
     forced = r.forced
 
     seated = sorted(r.players, key=lambda p: p['seat_no'])
@@ -115,9 +117,9 @@ def convert_hand_to_ohh(hand: dict, hero_uid: str | None = None) -> dict:
         add_forced(forced.sb_seat, "Post SB", forced.sb_amount)
     if forced.bb_seat is not None:
         add_forced(forced.bb_seat, "Post BB", forced.bb_amount)
-    # Post-to-enter: a live blind that isn't the table's SB/BB. OHH models it
-    # directly, so unlike the PokerStars renderer there is no need to disguise
-    # it as a big blind.
+    # Post-to-enter: a live blind that isn't the table's SB/BB. OHH has an
+    # action for it, but PT4 treats any post above the big blind as part dead,
+    # so it is charged as a big blind here too (quirk 6).
     for seat_no, amount in forced.posts:
         add_forced(seat_no, "Post Extra Blind", amount)
     # The straddle is a first-class OHH action — no synthetic raise needed.

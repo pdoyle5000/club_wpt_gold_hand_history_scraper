@@ -156,7 +156,7 @@ def convert_hand(hand: dict, hero_uid: str | None = None) -> str:
     hero_uid: explicit override; if None, auto-detected from table.session_id
     (falls back to DEFAULT_HERO_UID when session_id isn't present, e.g. in tests).
     """
-    r = replay_hand(hand, hero_uid=hero_uid, pokerstars_compat=True)
+    r = replay_hand(hand, hero_uid=hero_uid, post_as_big_blind=True)
     lines = []
     seat_map = r.seat_map
     forced = r.forced
