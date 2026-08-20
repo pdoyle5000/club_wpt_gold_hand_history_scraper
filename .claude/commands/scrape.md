@@ -4,9 +4,8 @@ Run the scrape + convert pipeline using the provided auth token. If no token is 
 
 Steps:
 1. If a token argument is provided, run: `uv run python main.py --token "$ARGUMENTS" --update --output-dir ~/ssd/clubwpt_hands`
-   - This does an incremental scrape (fetches new hands, stops on first duplicate) then converts all hands.
-   - To bypass the cache for recent pages instead, use `--refresh-recent` in place of `--update`.
-   - To re-download everything from scratch, use `--overwrite` in place of `--update`.
+   - This does an incremental scrape (fetches hands not already on disk, stopping after 3 consecutive pages with nothing new) then converts all hands.
+   - If the update reports that hands on the server are still missing locally, re-run with no scrape flag at all to sweep the full history.
    - To write Open Hand History JSON instead (models antes and straddles natively), add `--format ohh`; `--format both` writes both.
 2. If no token argument is provided, run: `uv run python main.py --convert-only --output-dir ~/ssd/clubwpt_hands`
 3. After conversion completes, create a zip of the output: `cd ~/ssd/clubwpt_hands && zip -j ClubWPT_HandHistory.zip pokerstars/HH_*.txt`
