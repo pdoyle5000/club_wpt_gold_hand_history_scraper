@@ -6,14 +6,14 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 
 ## Architecture
 
-- `scraper.py` — Async httpx client that fetches paginated hand data from `https://analysis-b2b.quintace.ai/api/players/hands`
+- `scraper.py` — Async httpx client that fetches paginated hand data from `https://analysis-b2b.quintace.ai/api/players/hands`, plus the merge-only raw hand store (`merge_raw_hands`, `load_raw_hands_by_id`)
 - `hand_replay.py` — Reconstructs a hand from the raw API JSON: starting stacks, forced bets, resolved per-action chip amounts, uncalled bet, rake and winners. All the API quirks below are handled here once, so the two renderers can't drift apart.
 - `converter.py` — Renders a replayed hand as PokerStars `.txt`
 - `ohh_converter.py` — Renders a replayed hand as [Open Hand History](https://hh-specs.handhistory.org) JSON
 - `main.py` — CLI entry point with `--scrape-only`, `--convert-only`, `--format`, and full pipeline modes
 - `test_converter.py` — pytest suite covering PokerStars conversion logic and known edge cases
 - `test_ohh_converter.py` — pytest suite covering the OHH document, action amounts and pot reconciliation
-- `test_scraper.py` / `test_main.py` — scraper page-freshness helpers and CLI routing
+- `test_scraper.py` / `test_main.py` — raw store merge semantics, both scrape strategies (including regression tests for the page-index data loss), and CLI routing
 
 ## Key API Details
 
@@ -29,7 +29,7 @@ This project scrapes NLHE cash game hand analysis data from the ClubWPT Gold Qui
 
 Both renderers call `replay_hand(..., post_as_big_blind=True)`. That flag does one thing: it charges a post-to-enter as a big blind instead of its real size, because PT4 misreads a larger post in *either* format (quirk 6). Everything else is the same faithful reconstruction both formats use. Quirk 1 (straddle as a synthetic raise) is a rendering choice in `converter.py`, not a replay difference.
 
-Any change to either renderer should be checked by converting the whole raw corpus with the previous version and diffing, not just by running the unit tests — the tests cover a few dozen hands out of 61,726. For OHH, also re-check the invariant PT4 enforces on import: summing every action `amount`, deducting the uncalled bet (highest street investment minus second-highest, with a post counted only up to the big blind), must equal `pots[0].amount`, which must in turn equal the winners' `win_amount`s plus `rake`.
+Any change to either renderer should be checked by converting the whole raw corpus with the previous version and diffing, not just by running the unit tests — the tests cover a few dozen hands out of 70,408. (Figures quoted below as "out of 61,726" were measured on the corpus as it stood before the 2026-08-20 storage fix recovered the missing 12%; they have not been re-measured.) For OHH, also re-check the invariant PT4 enforces on import: summing every action `amount`, deducting the uncalled bet (highest street investment minus second-highest, with a post counted only up to the big blind), must equal `pots[0].amount`, which must in turn equal the winners' `win_amount`s plus `rake`.
 
 OHH-specific notes:
 
@@ -58,12 +58,33 @@ OHH-specific notes:
     Quirks 11 and 12 were found by checking every hand's forced bets against the API's own `hand_history[0].pot_size`, which equals `ante * players + SB + BB + straddle` for all 61,726 hands in the corpus. That figure excludes posts (declared or not).
 13. **Rake**: The analysis API returns rake-free, zero-sum data (`sum(net) == 0` across players), so rake is computed and re-applied from the [published ClubWPT Gold rake structure](https://support.clubwptgold.com/portal/en/kb/articles/rake) in `hand_replay.compute_rake()`. Rake is a percentage of the contested (post-uncalled-bet) pot, capped by stake and by the number of players dealt in (2P / 3–4P / 5P+ tiers). The `Total pot` line reports the gross pot; winners collect the pot net of rake. Two conventions not stated on the rake page are applied: **no flop, no rake** (hands ending preflop are unraked) and **round-half-up to the nearest cent**. Stakes absent from the table are unraked. `RAKE_TABLE` is keyed by `(small_blind, big_blind)` in chips (cents).
 
-## Scraper Caching
+## Raw Storage and Scrape Strategies
 
-- By default, `scrape_all` (the full-pipeline mode) trusts the on-disk `raw/page_*.json` cache for every page (except page 1, which is always fetched fresh for metadata).
-- `--refresh-recent`: The API returns hands newest-first, so every new hand played shifts all older hands to a later page — a cached page near the front can go stale as soon as new hands are played. With this flag, `scrape_all` never trusts the on-disk cache for pages that might still contain hands from the last `FRESH_WINDOW_MS` (3 days, rolling from the current time) — it walks those pages sequentially, always re-fetching and overwriting the cache. Once a page is entirely older than that window, every later page is guaranteed to be older too, so the scraper falls back to the normal cache-aware, concurrently-batched fetch for the stable historical tail. Mutually exclusive with `--update` and `--convert-only`.
-- `--overwrite` bypasses the cache entirely and re-downloads every page in range, regardless of freshness. Mutually exclusive with `--update` and `--convert-only`.
-- `--update` (`scrape_update`) is unaffected by either flag — it already always walks fresh from page 1 and stops on the first duplicate hand ID.
+**Never key raw storage or caching on page index.** The API returns hands newest-first, so page N holds different hands every time anybody plays a hand. Treating `page_00042.json` as "the contents of page 42" loses hands, and did: it cost 8,682 hands (12% of the corpus), including every hand after 2026-08-08 and whole days *inside* the scraped range. Two independent bugs, both now removed:
+
+1. `scrape_all` trusted the on-disk page cache for every page but page 1. Between runs, new hands shift the corpus toward later pages, so everything newer than the cached snapshot except the newest 100 hands was never fetched. The corpus showed this as page 1 ending at 2026-08-08 21:23 and page 2 starting at 2026-08-01 16:28 — a 7-day hole. `--refresh-recent` only narrowed the window (it keyed off a fixed 3-day window rather than the newest hand on disk), so any gap longer than 3 days between runs still lost hands.
+2. `scrape_update` called `_save_raw_page` for pages 1..N, overwriting those files with fresh content and destroying the older hands stored under those indexes. That is what punched holes inside the already-scraped range. `_save_raw_page` now raises rather than silently corrupting the store.
+
+Current design:
+
+- **Storage** — `raw/hands_YYYY-MM-DD.json`, partitioned by the hand's UTC date and keyed by hand ID. `merge_raw_hands` is the only writer, and it merges: no run can remove or replace a stored hand, so an interrupted or partial run can only add data. Writes are atomic (`.tmp` + `os.replace`). Legacy `page_*.json` files are still read by `load_raw_hands_by_id`, which is how the 2 hands the server has since dropped are retained.
+- **Full scrape** (default, no flag) — sweeps every page, no cache. ~705 pages / ~2-35 min depending on how hard the API is throttling. Failed pages are retried individually rather than left as holes, and the run warns if the captured count falls short of the server's reported total. Because a hand played mid-sweep shifts hands toward pages already fetched, the sweep is followed by a drift check: an incremental walk from page 1 until `UPDATE_CONFIRM_PAGES` consecutive pages contain nothing new.
+- **`--update`** — walks forward from page 1 and stops after `UPDATE_CONFIRM_PAGES` (3) consecutive pages with no new hands. It requires several confirming pages rather than stopping on the first known hand, because the server has small holes in its own history. It reports when hands on the server are still absent locally and tells you to run a full scrape.
+- `--overwrite` and `--refresh-recent` are accepted as no-ops (the full scrape subsumes both) so existing scripts keep working.
+
+## API Surface (verified 2026-08-20)
+
+The API has *not* changed in any way that hides hands. The UI's new session view added endpoints and fields but did not narrow `/api/players/hands`.
+
+- `GET /api/players/hands?game=nlhe&page=N&pageSize=100` — unchanged. `pageSize` is capped at 100: a larger value returns an empty body, not an error, so `MAX_PAGE_SIZE` clamps it.
+- **The unfiltered response is the complete history, analyzed or not.** The UI's filters send `filter=<field>:eq:<n>`: `analysis_mode:eq:0` (not analyzed) = 51,800 hands, `:eq:1` (analyzed) = 15,347, `:eq:2` (advanced) = 3,261 — summing to exactly the 70,408 the unfiltered call reports. The scraper deliberately sends no `filter`. Other known filter fields: `saved_hands:eq:1`, `table_type:eq:4` (compete), `table_type:eq:5` (imported).
+- `GET /api/players/sessions?game=nlhe&page=N&pageSize=100` — new, backs the session-first UI. One row per session with `stats.total_hands_played`. Useful as an independent check on coverage.
+- `GET /api/players/stats` — reports `total_hands`, handy for a sanity check, but it disagrees slightly with `/hands` (71,228 vs 70,408); don't treat it as authoritative.
+- New fields on each hand: `table.session_id` (`{table_id}|0|{player_id}|{YYYYMMDD}`, and `""` for 2,932 older hands with no session) and `analysis`. New top-level `jobs` key.
+- `nlhe` is the only game type with any hands (`plo4`, `mtt`, `squid` all return 0).
+- **The server itself has gaps and duplicates.** The sessions view claims 71,226 hands vs the 70,408 `/hands` returns; 82 sessions (2,987 hands) return no hands at all, all in 2026-03/04. `/hands` also serves 2 hand IDs twice across pages. Nothing after 2026-06 is affected — for July and August every hand the sessions view knows about is retrievable — so this is upstream data loss, not a scraper bug, and not worth chasing.
+
+When investigating a suspected scrape gap, the reliable check is an ID-level diff: sweep the API into a scratch directory, then compare that ID set against `load_raw_hands_by_id(raw_dir)`. Per-date counts are misleading unless both sides use UTC.
 
 ## Running Tests
 
@@ -89,18 +110,16 @@ uv run python main.py --token "YOUR_JWT_TOKEN" --format ohh
 # Custom output directory
 uv run python main.py --token "YOUR_JWT_TOKEN" --output-dir /path/to/output
 
-# Force a full re-download, ignoring the cache entirely
-uv run python main.py --token "YOUR_JWT_TOKEN" --overwrite
-
-# Re-fetch pages that might hold hands from the last 3 days, trust cache for the rest
-uv run python main.py --token "YOUR_JWT_TOKEN" --refresh-recent
+# Fast incremental top-up (stops after 3 consecutive pages with nothing new)
+uv run python main.py --token "YOUR_JWT_TOKEN" --update
 ```
 
 ## Output Structure
 
 ```
 output/
-  raw/              # Raw JSON pages from API (page_00001.json, ...)
+  raw/              # Raw hands, one merge-only file per UTC date (hands_2026-08-20.json, ...)
+                    # plus legacy page_*.json from older versions, still read
   pokerstars/       # PokerStars text files (HH_2026-07-17.txt, ...)
   ohh/              # Open Hand History files (HH_2026-07-17.ohh, ...)
 ```

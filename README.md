@@ -63,27 +63,13 @@ uv run python main.py --convert-only
 
 ### Incremental Update
 
-Fetch only new hands since the last scrape (stops on the first duplicate):
+Fetch only hands not already on disk, walking forward from page 1 and stopping once three consecutive pages contain nothing new:
 
 ```bash
 uv run python main.py --token "eyJ..." --update
 ```
 
-### Refresh Recent Pages
-
-Re-fetch pages that may contain hands from the last 3 days (handles page shifting from new hands), then use the cache for older pages:
-
-```bash
-uv run python main.py --token "eyJ..." --refresh-recent
-```
-
-### Full Re-download
-
-Ignore the on-disk cache entirely and re-download every page:
-
-```bash
-uv run python main.py --token "eyJ..." --overwrite
-```
+`--update` is a fast top-up, not a repair: if it reports that hands on the server are still missing locally, run a full scrape (no flag), which sweeps every page.
 
 ### Output Format
 
@@ -122,18 +108,20 @@ Accuracy against the API's own figures, over a 61,726-hand corpus:
 | `--hero-uid` | auto-detected | Your player UID (for "Dealt to" lines); auto-detected from `table.session_id` if omitted |
 | `--scrape-only` | | Only scrape, don't convert |
 | `--convert-only` | | Only convert existing raw data |
-| `--update` | | Incremental scrape: fetch new hands, stop on first duplicate |
-| `--refresh-recent` | | Bypass cache for pages within the last 3 days |
-| `--overwrite` | | Re-download every page, ignoring cache |
+| `--update` | | Incremental scrape: fetch only hands not already on disk |
+| `--refresh-recent` | | Deprecated no-op (a full scrape re-fetches every page) |
+| `--overwrite` | | Deprecated no-op (a full scrape re-fetches every page) |
 
 ## Output
 
 ```
 output/
-  raw/              # Raw JSON pages (page_00001.json ... page_00547.json)
+  raw/              # Raw hands, one file per day (hands_2026-08-20.json, ...)
   pokerstars/       # PokerStars format files (HH_2026-07-17.txt, ...)
   ohh/              # Open Hand History files (HH_2026-07-17.ohh, ...)  [--format ohh]
 ```
+
+Raw hands are stored by date and keyed by hand ID, and every write is a merge, so a run can only ever add hands. Legacy `page_*.json` files from older versions are still read, so nothing previously captured is lost. Storing raw data by *page index* is what caused the scraper to silently miss hands — see the Scraper Caching notes in `CLAUDE.md`.
 
 Either directory can be imported into PokerTracker 4 or Holdem Manager 3 via their hand history import feature. Import one or the other, not both — the same hands in two formats will double-count.
 

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from converter import convert_hand
 from ohh_converter import convert_hand_to_ohh_json
-from scraper import scrape_all, scrape_update
+from scraper import load_raw_hands_by_id, scrape_all, scrape_update
 
 # name -> (output subdirectory, file extension, per-hand renderer, separator)
 FORMATS = {
@@ -74,29 +74,14 @@ def write_hand_files(hands: list[dict], output_dir: str, hero_uid: str | None = 
 
 
 def load_raw_hands(raw_dir: str) -> list[dict]:
-    """Load all hands from raw JSON page files, deduplicating by hand ID.
+    """Load every stored hand, deduplicated by hand ID and sorted oldest-first.
 
-    Pages are loaded in order (page 1 first), so after an --update run
-    that overwrites early pages, the newest version of shifted hands is kept.
+    Reads both the date-partitioned ``hands_*.json`` store and any legacy
+    ``page_*.json`` snapshots, so nothing captured by an older version of the
+    scraper is dropped.
     """
-    hands = []
-    seen_ids: set[str] = set()
-    if not os.path.exists(raw_dir):
-        return hands
-
-    files = sorted(f for f in os.listdir(raw_dir) if f.startswith('page_') and f.endswith('.json'))
-    for filename in files:
-        filepath = os.path.join(raw_dir, filename)
-        try:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            for hand in data.get('data', []):
-                hand_id = str(hand.get('id', ''))
-                if hand_id and hand_id not in seen_ids:
-                    seen_ids.add(hand_id)
-                    hands.append(hand)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"  Warning: Could not load {filename}: {e}")
+    hands = list(load_raw_hands_by_id(raw_dir).values())
+    hands.sort(key=lambda h: h.get('timestamp', 0))
     return hands
 
 
@@ -142,12 +127,11 @@ def main():
     )
     parser.add_argument(
         "--overwrite", action="store_true",
-        help="Ignore the on-disk cache entirely and re-download every page"
+        help="Deprecated no-op: a full scrape already re-fetches every page"
     )
     parser.add_argument(
         "--refresh-recent", action="store_true",
-        help="Bypass the on-disk cache for pages that may contain hands from "
-             "the last 3 days, since new hands can shift them (default: trust the cache)"
+        help="Deprecated no-op: a full scrape already re-fetches every page"
     )
     parser.add_argument(
         "--format", choices=["pokerstars", "ohh", "both"], default="pokerstars",
@@ -212,6 +196,9 @@ def main():
         print("=" * 60)
         print("ClubWPT Gold Hand History Scraper")
         print("=" * 60)
+        if args.overwrite or args.refresh_recent:
+            print("Note: --overwrite/--refresh-recent are no-ops; a full scrape "
+                  "always re-fetches every page.")
         asyncio.run(
             scrape_all(
                 token=args.token,
@@ -220,8 +207,6 @@ def main():
                 start_page=args.start_page,
                 end_page=args.end_page,
                 max_concurrent=args.max_concurrent,
-                overwrite=args.overwrite,
-                refresh_recent=args.refresh_recent,
             )
         )
 
